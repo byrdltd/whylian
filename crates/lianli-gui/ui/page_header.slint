@@ -1,0 +1,32 @@
+import { Theme } from "theme.slint";
+
+export component PageHeader inherits VerticalLayout {
+    in property <string> title;
+
+    HorizontalLayout {
+        height: 52px;
+        padding-left: 24px;
+        padding-right: 24px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        spacing: 12px;
+
+        Text {
+            text: root.title;
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+            vertical-alignment: center;
+        }
+
+        Rectangle { horizontal-stretch: 1; }
+
+        @children
+    }
+
+    // Bottom border
+    Rectangle {
+        height: 1px;
+        background: Theme.border;
+    }
+}

@@ -1,0 +1,807 @@
+//! IPC server: Unix domain socket for daemon ↔ GUI communication.
+//!
+//! Protocol: newline-delimited JSON (one request is one response per connection).
+//! The GUI polls periodically for telemetry. Config writes go through IPC.
+
+use crate::rgb_controller::RgbController;
+use crate::service::DaemonEvent;
+use crate::template_store;
+use lianli_media::CustomAsset;
+use lianli_shared::config::AppConfig;
+use lianli_shared::ipc::{DeviceInfo, IpcRequest, IpcResponse, TelemetrySnapshot};
+use lianli_shared::rgb::{RgbDeviceConfig, RgbPreset, RgbPresetZone, RgbZoneConfig};
+use lianli_shared::screen::ScreenInfo;
+use lianli_shared::sensors::Unit;
+use lianli_shared::template::LcdTemplate;
+use parking_lot::Mutex;
+use std::fs;
+use std::io::{BufRead, BufReader, Write};
+use std::os::unix::net::UnixListener;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Sender;
+use std::sync::{Arc, LazyLock};
+use std::thread;
+use tracing::{debug, error, info, warn};
+
+pub static SOCKET_PATH: LazyLock<String> = LazyLock::new(|| {
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".into());
+    format!("{runtime_dir}/lianli-daemon.sock")
+});
+
+/// Shared state between the daemon main loop and the IPC server thread.
+pub struct DaemonState {
+    pub config: Option<AppConfig>,
+    pub config_path: PathBuf,
+    pub presets_path: PathBuf,
+    pub devices: Vec<DeviceInfo>,
+    pub telemetry: TelemetrySnapshot,
+    /// RGB controller, set once devices are opened.
+    pub rgb_controller: Option<Arc<Mutex<RgbController>>>,
+    pub user_templates: Vec<LcdTemplate>,
+    pub rgb_presets: Vec<RgbPreset>,
+}
+
+impl DaemonState {
+    pub fn new(config_path: PathBuf) -> Self {
+        let presets_path = config_path
+            .parent()
+            .unwrap_or(Path::new("."))
+            .join("rgb_presets.json");
+        let rgb_presets = read_rgb_presets(&presets_path);
+        Self {
+            config: None,
+            config_path,
+            presets_path,
+            devices: Vec::new(),
+            telemetry: TelemetrySnapshot::default(),
+            rgb_controller: None,
+            user_templates: Vec::new(),
+            rgb_presets,
+        }
+    }
+
+    pub fn templates_path(&self) -> PathBuf {
+        template_store::templates_path_for(&self.config_path)
+    }
+}
+
+/// Starts the IPC server in a background thread.
+/// Returns the join handle for cleanup.
+pub fn start_ipc_server(
+    state: Arc<Mutex<DaemonState>>,
+    stop_flag: Arc<AtomicBool>,
+    tx: Sender<DaemonEvent>,
+) -> thread::JoinHandle<()> {
+    thread::spawn(move || {
+        if let Err(e) = run_server(state, stop_flag, tx) {
+            error!("IPC server error: {e}");
+        }
+    })
+}
+
+fn run_server(
+    state: Arc<Mutex<DaemonState>>,
+    stop_flag: Arc<AtomicBool>,
+    tx: Sender<DaemonEvent>,
+) -> anyhow::Result<()> {
+    // Clean up stale socket
+    let socket_path = Path::new(SOCKET_PATH.as_str());
+    if socket_path.exists() {
+        fs::remove_file(socket_path)?;
+    }
+
+    // Ensure parent directory exists
+    if let Some(parent) = socket_path.parent() {
+        fs::create_dir_all(parent).ok();
+    }
+
+    let listener = UnixListener::bind(socket_path)?;
+
+    // Make socket world-accessible so non-root GUI can connect
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(socket_path, fs::Permissions::from_mode(0o666))?;
+    }
+
+    // Non-blocking so we can check stop_flag
+    listener.set_nonblocking(true)?;
+
+    info!("IPC server listening on {}", *SOCKET_PATH);
+
+    while !stop_flag.load(Ordering::Relaxed) {
+        match listener.accept() {
+            Ok((stream, _addr)) => {
+                // Set blocking for this connection
+                stream.set_nonblocking(false).ok();
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                    .ok();
+                stream
+                    .set_write_timeout(Some(std::time::Duration::from_secs(5)))
+                    .ok();
+
+                let state = Arc::clone(&state);
+                let tx_for_client = tx.clone();
+                thread::spawn(move || {
+                    if let Err(e) = handle_connection(stream, state, tx_for_client) {
+                        debug!("IPC connection error: {e}");
+                    }
+                });
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                // No pending connection, sleep briefly
+                thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(e) => {
+                warn!("IPC accept error: {e}");
+                thread::sleep(std::time::Duration::from_millis(100));
+            }
+        }
+    }
+
+    // Cleanup socket on exit
+    fs::remove_file(socket_path).ok();
+    info!("IPC server stopped");
+    Ok(())
+}
+
+fn handle_connection(
+    stream: std::os::unix::net::UnixStream,
+    state: Arc<Mutex<DaemonState>>,
+    tx: Sender<DaemonEvent>,
+) -> anyhow::Result<()> {
+    let reader = BufReader::new(&stream);
+    let mut writer = &stream;
+
+    for line in reader.lines() {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let request: IpcRequest = match serde_json::from_str(&line) {
+            Ok(req) => req,
+            Err(e) => {
+                let resp = IpcResponse::error(format!("invalid request: {e}"));
+                write_response(&mut writer, &resp)?;
+                continue;
+            }
+        };
+
+        debug!("IPC request: {request:?}");
+        let response = handle_request(request, &state, tx.clone());
+        write_response(&mut writer, &response)?;
+    }
+
+    Ok(())
+}
+
+fn handle_request(
+    request: IpcRequest,
+    state: &Arc<Mutex<DaemonState>>,
+    tx: Sender<DaemonEvent>,
+) -> IpcResponse {
+    match request {
+        IpcRequest::Ping => IpcResponse::ok(serde_json::json!("pong")),
+
+        IpcRequest::ListSensors => {
+            let mut sensors = lianli_shared::sensors::enumerate_sensors();
+            // Add wireless coolant sensors from live telemetry
+            let ipc_state = state.lock();
+            for (device_id, temp) in &ipc_state.telemetry.coolant_temps {
+                let display = ipc_state
+                    .devices
+                    .iter()
+                    .find(|d| d.device_id == *device_id)
+                    .map(|d| format!("{} (Coolant)", d.name))
+                    .unwrap_or_else(|| format!("{device_id} (Coolant)"));
+                sensors.push(lianli_shared::sensors::SensorInfo {
+                    source: lianli_shared::sensors::SensorSource::WirelessCoolant {
+                        device_id: device_id.clone(),
+                    },
+                    sensor_name: None,
+                    display_name: Some(display),
+                    unit: Unit::C,
+                    divider: 1,
+                    current_value: Some(*temp),
+                });
+            }
+            drop(ipc_state);
+            IpcResponse::ok(&sensors)
+        }
+
+        IpcRequest::ListDevices => {
+            let state = state.lock();
+            IpcResponse::ok(&state.devices)
+        }
+
+        IpcRequest::GetConfig => {
+            let state = state.lock();
+            match &state.config {
+                Some(config) => IpcResponse::ok(config),
+                None => IpcResponse::error("config not loaded yet"),
+            }
+        }
+
+        IpcRequest::GetTelemetry => {
+            let state = state.lock();
+            IpcResponse::ok(&state.telemetry)
+        }
+
+        IpcRequest::SetConfig { config } => {
+            let mut state = state.lock();
+            match write_config(&state.config_path, &config) {
+                Ok(()) => {
+                    state.config = Some(config);
+                    tx.send(DaemonEvent::IpcUpdate).ok();
+                    info!("Config updated via IPC");
+                    IpcResponse::ok(serde_json::json!(null))
+                }
+                Err(e) => IpcResponse::error(format!("failed to write config: {e}")),
+            }
+        }
+
+        IpcRequest::SetLcdMedia { device_id, config } => {
+            let mut state = state.lock();
+            let app_config = state.config.get_or_insert_with(AppConfig::default);
+            let found = app_config
+                .lcds
+                .iter_mut()
+                .find(|lcd| lcd.device_id() == device_id);
+            match found {
+                Some(lcd) => {
+                    *lcd = config;
+                }
+                None => {
+                    // New LCD entry
+                    app_config.lcds.push(config);
+                }
+            }
+            let cfg_clone = app_config.clone();
+            match write_config(&state.config_path, &cfg_clone) {
+                Ok(()) => {
+                    tx.send(DaemonEvent::IpcUpdate).ok();
+                    IpcResponse::ok(serde_json::json!(null))
+                }
+                Err(e) => IpcResponse::error(format!("failed to write config: {e}")),
+            }
+        }
+
+        IpcRequest::SetFanConfig { config } => {
+            let mut state = state.lock();
+            let app_config = state.config.get_or_insert_with(AppConfig::default);
+            app_config.fans = Some(config);
+            let cfg_clone = app_config.clone();
+            match write_config(&state.config_path, &cfg_clone) {
+                Ok(()) => {
+                    tx.send(DaemonEvent::IpcUpdate).ok();
+                    IpcResponse::ok(serde_json::json!(null))
+                }
+                Err(e) => IpcResponse::error(format!("failed to write config: {e}")),
+            }
+        }
+
+        IpcRequest::SetFanSpeed {
+            device_index,
+            fan_pwm,
+        } => {
+            debug!("SetFanSpeed for device {device_index}: {fan_pwm:?}");
+            let mut state = state.lock();
+            let app_config = state.config.get_or_insert_with(AppConfig::default);
+            let fans = app_config.fans.get_or_insert_with(Default::default);
+            let idx = device_index as usize;
+            while fans.speeds.len() <= idx {
+                fans.speeds.push(lianli_shared::fan::FanGroup {
+                    device_id: None,
+                    speeds: [
+                        lianli_shared::fan::FanSpeed::Constant(128),
+                        lianli_shared::fan::FanSpeed::Constant(128),
+                        lianli_shared::fan::FanSpeed::Constant(128),
+                        lianli_shared::fan::FanSpeed::Constant(128),
+                    ],
+                });
+            }
+            fans.speeds[idx].speeds = [
+                lianli_shared::fan::FanSpeed::Constant(fan_pwm[0]),
+                lianli_shared::fan::FanSpeed::Constant(fan_pwm[1]),
+                lianli_shared::fan::FanSpeed::Constant(fan_pwm[2]),
+                lianli_shared::fan::FanSpeed::Constant(fan_pwm[3]),
+            ];
+            let cfg_clone = app_config.clone();
+            match write_config(&state.config_path, &cfg_clone) {
+                Ok(()) => {
+                    tx.send(DaemonEvent::IpcUpdate).ok();
+                    IpcResponse::ok(serde_json::json!(null))
+                }
+                Err(e) => IpcResponse::error(format!("failed to write config: {e}")),
+            }
+        }
+
+        IpcRequest::GetRgbCapabilities => {
+            let state = state.lock();
+            if let Some(ref rgb) = state.rgb_controller {
+                let caps = rgb.lock().capabilities();
+                IpcResponse::ok(&caps)
+            } else {
+                IpcResponse::ok(serde_json::json!([]))
+            }
+        }
+
+        IpcRequest::SetRgbEffect {
+            device_id,
+            zone,
+            effect,
+        } => {
+            let state = state.lock();
+            if let Some(ref rgb) = state.rgb_controller {
+                match rgb.lock().set_effect(&device_id, zone, &effect) {
+                    Ok(()) => IpcResponse::ok(serde_json::json!(null)),
+                    Err(e) => IpcResponse::error(format!("RGB effect error: {e}")),
+                }
+            } else {
+                IpcResponse::error("RGB controller not initialized")
+            }
+        }
+
+        IpcRequest::SetRgbDirect {
+            device_id,
+            zone,
+            colors,
+        } => {
+            let state = state.lock();
+            if let Some(ref rgb) = state.rgb_controller {
+                match rgb.lock().set_direct_colors(&device_id, zone, &colors) {
+                    Ok(()) => IpcResponse::ok(serde_json::json!(null)),
+                    Err(e) => IpcResponse::error(format!("RGB direct error: {e}")),
+                }
+            } else {
+                IpcResponse::error("RGB controller not initialized")
+            }
+        }
+
+        IpcRequest::SetMbRgbSync { device_id, enabled } => {
+            let state = state.lock();
+            if let Some(ref rgb) = state.rgb_controller {
+                match rgb.lock().set_mb_rgb_sync(&device_id, enabled) {
+                    Ok(()) => IpcResponse::ok(serde_json::json!(null)),
+                    Err(e) => IpcResponse::error(format!("MB RGB sync error: {e}")),
+                }
+            } else {
+                IpcResponse::error("RGB controller not initialized")
+            }
+        }
+
+        IpcRequest::SetFanDirection {
+            device_id,
+            zone,
+            swap_lr,
+            swap_tb,
+        } => {
+            let state = state.lock();
+            if let Some(ref rgb) = state.rgb_controller {
+                match rgb
+                    .lock()
+                    .set_fan_direction(&device_id, zone, swap_lr, swap_tb)
+                {
+                    Ok(()) => IpcResponse::ok(serde_json::json!(null)),
+                    Err(e) => IpcResponse::error(format!("Fan direction error: {e}")),
+                }
+            } else {
+                IpcResponse::error("RGB controller not initialized")
+            }
+        }
+
+        IpcRequest::SetRgbConfig { config } => {
+            let mut state = state.lock();
+            let app_config = state.config.get_or_insert_with(AppConfig::default);
+            app_config.rgb = Some(config);
+            let cfg_clone = app_config.clone();
+            match write_config(&state.config_path, &cfg_clone) {
+                Ok(()) => {
+                    tx.send(DaemonEvent::IpcUpdate).ok();
+                    IpcResponse::ok(serde_json::json!(null))
+                }
+                Err(e) => IpcResponse::error(format!("failed to write config: {e}")),
+            }
+        }
+
+        IpcRequest::SwitchDisplayMode { device_id } => {
+            let (family, pid) = {
+                let state = state.lock();
+                match state.devices.iter().find(|d| d.device_id == device_id) {
+                    Some(d) => (Some(d.family), d.pid),
+                    None => (None, 0),
+                }
+            };
+            match family {
+                Some(f) if f.is_desktop_mode() => {
+                    if pid == 0 {
+                        return IpcResponse::error("device PID not available");
+                    }
+                    tx.send(DaemonEvent::DisplaySwitchToLcd { device_id, pid })
+                        .ok();
+                    IpcResponse::ok(serde_json::json!({
+                        "switched": "to_lcd",
+                        "message": "Device is rebooting into LCD mode. It will appear shortly."
+                    }))
+                }
+                Some(f) if f.supports_display_mode_switch() => {
+                    // LCD -> Desktop: service loop owns the WinUSB transport
+                    tx.send(DaemonEvent::DisplaySwitch { device_id }).ok();
+                    IpcResponse::ok(serde_json::json!({
+                        "switched": "to_desktop",
+                        "message": "Device is switching to desktop mode. It will reboot shortly."
+                    }))
+                }
+                Some(_) => IpcResponse::error("device does not support display mode switching"),
+                None => IpcResponse::error(format!("device not found: {device_id}")),
+            }
+        }
+
+        IpcRequest::BindWirelessDevice { mac } => {
+            tx.send(DaemonEvent::Bind { mac_address: mac }).ok();
+            IpcResponse::ok(serde_json::json!({
+                "message": "Bind command queued. Device should appear shortly."
+            }))
+        }
+
+        IpcRequest::UnbindWirelessDevice { mac } => {
+            tx.send(DaemonEvent::Unbind { mac_address: mac }).ok();
+            IpcResponse::ok(serde_json::json!({
+                "message": "Unbind command queued."
+            }))
+        }
+
+        IpcRequest::SetEne6k77FanQuantity {
+            device_id,
+            quantity,
+        } => {
+            tx.send(DaemonEvent::SetEne6k77FanQuantity {
+                device_id,
+                quantity,
+            })
+            .ok();
+            IpcResponse::ok(serde_json::json!({
+                "message": "Fan quantity update queued."
+            }))
+        }
+
+        IpcRequest::GetLcdTemplates => {
+            let state = state.lock();
+            let sensors = lianli_shared::sensors::enumerate_sensors();
+            let all = template_store::all_templates(&state.user_templates, &sensors);
+            IpcResponse::ok(&all)
+        }
+
+        IpcRequest::SetLcdTemplates { templates } => {
+            let mut state = state.lock();
+            let path = state.templates_path();
+            match template_store::save_user_templates(&path, &templates) {
+                Ok(()) => {
+                    state.user_templates = template_store::load_user_templates(&path);
+                    let sensors = lianli_shared::sensors::enumerate_sensors();
+                    template_store::regenerate_template_previews(&state.user_templates, &sensors);
+                    tx.send(DaemonEvent::IpcUpdate).ok();
+                    info!("LCD templates updated via IPC");
+                    IpcResponse::ok(serde_json::json!(null))
+                }
+                Err(e) => IpcResponse::error(format!("failed to write templates: {e}")),
+            }
+        }
+
+        IpcRequest::RenderTemplatePreview {
+            template,
+            width,
+            height,
+        } => {
+            let preview_screen = ScreenInfo {
+                width,
+                height,
+                max_fps: 30,
+                jpeg_quality: 90,
+                max_payload: 4 * 1024 * 1024,
+                h264: false,
+                needs_keepalive: false,
+            };
+            let all_sensors = lianli_shared::sensors::enumerate_sensors();
+            match CustomAsset::new(&template, 0.0, &preview_screen, &all_sensors, false) {
+                Ok(asset) => {
+                    asset.seed_preview_history();
+                    match asset.render_frame(true) {
+                        Ok(Some(frame)) => IpcResponse::ok(serde_json::json!({
+                            "jpeg_base64": base64_encode(&frame.data),
+                        })),
+                        Ok(None) => {
+                            let blank = asset.blank_frame();
+                            IpcResponse::ok(serde_json::json!({
+                                "jpeg_base64": base64_encode(&blank.data),
+                            }))
+                        }
+                        Err(e) => IpcResponse::error(format!("preview render failed: {e}")),
+                    }
+                }
+                Err(e) => IpcResponse::error(format!("preview asset creation failed: {e}")),
+            }
+        }
+
+        IpcRequest::SetLedColor {
+            device_id,
+            zone,
+            led_index,
+            color,
+        } => {
+            let state = state.lock();
+            if let Some(ref rgb) = state.rgb_controller {
+                let mut rgb = rgb.lock();
+                let mut colors = match rgb.get_zone_colors(&device_id, zone) {
+                    Some(c) => c,
+                    None => {
+                        return IpcResponse::error(format!(
+                            "zone {zone} not found on device {device_id}"
+                        ));
+                    }
+                };
+                let idx = led_index as usize;
+                if idx >= colors.len() {
+                    return IpcResponse::error(format!(
+                        "LED index {led_index} out of range (zone has {} LEDs)",
+                        colors.len()
+                    ));
+                }
+                colors[idx] = color;
+                match rgb.set_direct_colors(&device_id, zone, &colors) {
+                    Ok(()) => IpcResponse::ok(serde_json::json!(null)),
+                    Err(e) => IpcResponse::error(format!("RGB direct error: {e}")),
+                }
+            } else {
+                IpcResponse::error("RGB controller not initialized")
+            }
+        }
+
+        IpcRequest::GetZoneColors { device_id, zone } => {
+            let state = state.lock();
+            if let Some(ref rgb) = state.rgb_controller {
+                let rgb = rgb.lock();
+                match rgb.get_zone_colors(&device_id, zone) {
+                    Some(colors) => IpcResponse::ok(&colors),
+                    None => {
+                        IpcResponse::error(format!("zone {zone} not found on device {device_id}"))
+                    }
+                }
+            } else {
+                IpcResponse::error("RGB controller not initialized")
+            }
+        }
+
+        IpcRequest::SaveRgbPreset { name, device_id } => {
+            let zones = {
+                let state = state.lock();
+
+                let led_colors = state
+                    .rgb_controller
+                    .as_ref()
+                    .and_then(|rgb| rgb.lock().get_all_zone_colors(&device_id));
+
+                let zone_configs: Vec<_> = state
+                    .config
+                    .as_ref()
+                    .and_then(|c| c.rgb.as_ref())
+                    .and_then(|r| r.devices.iter().find(|d| d.device_id == device_id))
+                    .map(|d| d.zones.clone())
+                    .unwrap_or_default();
+
+                if let Some(led_zones) = led_colors {
+                    let zones: Vec<RgbPresetZone> = led_zones
+                        .into_iter()
+                        .map(|mut z| {
+                            z.effect = zone_configs
+                                .iter()
+                                .find(|zc| zc.zone_index == z.zone)
+                                .map(|zc| zc.effect.clone());
+                            z
+                        })
+                        .collect();
+                    Some(zones)
+                } else if !zone_configs.is_empty() {
+                    Some(
+                        zone_configs
+                            .iter()
+                            .map(|z| RgbPresetZone {
+                                zone: z.zone_index,
+                                colors: Vec::new(),
+                                effect: Some(z.effect.clone()),
+                            })
+                            .collect(),
+                    )
+                } else {
+                    None
+                }
+            };
+            let zones = match zones {
+                Some(z) => z,
+                None => {
+                    return IpcResponse::error(format!("device {device_id} not found"));
+                }
+            };
+            let preset = RgbPreset {
+                name: name.clone(),
+                device_id,
+                zones,
+            };
+            let mut state = state.lock();
+            if let Some(existing) = state
+                .rgb_presets
+                .iter_mut()
+                .find(|p| p.name == name && p.device_id == preset.device_id)
+            {
+                *existing = preset;
+            } else {
+                state.rgb_presets.push(preset);
+            }
+            match write_rgb_presets(&state.presets_path, &state.rgb_presets) {
+                Ok(()) => {
+                    tx.send(DaemonEvent::IpcUpdate).ok();
+                    info!("RGB preset '{name}' saved");
+                    IpcResponse::ok(serde_json::json!(null))
+                }
+                Err(e) => IpcResponse::error(format!("failed to write presets: {e}")),
+            }
+        }
+
+        IpcRequest::DeleteRgbPreset { name, device_id } => {
+            let mut state = state.lock();
+            let before = state.rgb_presets.len();
+            state
+                .rgb_presets
+                .retain(|p| !(p.name == name && p.device_id == device_id));
+            if state.rgb_presets.len() == before {
+                return IpcResponse::error(format!("preset '{name}' not found for {device_id}"));
+            }
+            match write_rgb_presets(&state.presets_path, &state.rgb_presets) {
+                Ok(()) => {
+                    tx.send(DaemonEvent::IpcUpdate).ok();
+                    info!("RGB preset '{name}' deleted");
+                    IpcResponse::ok(serde_json::json!(null))
+                }
+                Err(e) => IpcResponse::error(format!("failed to write presets: {e}")),
+            }
+        }
+
+        IpcRequest::ListRgbPresets => {
+            let state = state.lock();
+            IpcResponse::ok(&state.rgb_presets)
+        }
+
+        IpcRequest::ApplyRgbPreset { name, device_id } => {
+            let preset = {
+                let state = state.lock();
+                state
+                    .rgb_presets
+                    .iter()
+                    .find(|p| p.name == name && p.device_id == device_id)
+                    .cloned()
+            };
+            let preset = match preset {
+                Some(p) => p,
+                None => {
+                    return IpcResponse::error(format!("preset '{name}' not found for {device_id}"))
+                }
+            };
+
+            let mut state = state.lock();
+
+            // Apply effect configs to the main config + set active_preset
+            {
+                let app_config = state.config.get_or_insert_with(AppConfig::default);
+                let rgb_cfg = app_config.rgb.get_or_insert_with(Default::default);
+                let dev_cfg = if let Some(d) = rgb_cfg
+                    .devices
+                    .iter_mut()
+                    .find(|d| d.device_id == preset.device_id)
+                {
+                    d
+                } else {
+                    rgb_cfg.devices.push(RgbDeviceConfig {
+                        device_id: preset.device_id.clone(),
+                        mb_rgb_sync: false,
+                        active_preset: None,
+                        zones: Vec::new(),
+                    });
+                    rgb_cfg.devices.last_mut().unwrap()
+                };
+                dev_cfg.active_preset = Some(name.clone());
+                for zone_entry in &preset.zones {
+                    if let Some(effect) = &zone_entry.effect {
+                        if let Some(z) = dev_cfg
+                            .zones
+                            .iter_mut()
+                            .find(|z| z.zone_index == zone_entry.zone)
+                        {
+                            z.effect = effect.clone();
+                        } else {
+                            dev_cfg.zones.push(RgbZoneConfig {
+                                zone_index: zone_entry.zone,
+                                effect: effect.clone(),
+                                swap_lr: false,
+                                swap_tb: false,
+                            });
+                        }
+                    }
+                }
+                if let Err(e) = write_config(&state.config_path, state.config.as_ref().unwrap()) {
+                    return IpcResponse::error(format!("failed to write config: {e}"));
+                }
+            }
+
+            // Apply per-LED colors if present
+            let has_led_colors = preset.zones.iter().any(|z| !z.colors.is_empty());
+            if has_led_colors {
+                if let Some(ref rgb) = state.rgb_controller {
+                    let mut rgb = rgb.lock();
+                    for zone_entry in &preset.zones {
+                        if !zone_entry.colors.is_empty() {
+                            if let Err(e) = rgb.set_direct_colors(
+                                &preset.device_id,
+                                zone_entry.zone,
+                                &zone_entry.colors,
+                            ) {
+                                return IpcResponse::error(format!(
+                                    "failed to apply preset zone {}: {e}",
+                                    zone_entry.zone
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+
+            tx.send(DaemonEvent::IpcUpdate).ok();
+            info!("RGB preset '{name}' applied to {}", preset.device_id);
+            IpcResponse::ok(serde_json::json!(null))
+        }
+
+        IpcRequest::Subscribe => {
+            IpcResponse::error("Subscribe not yet implemented; use polling via GetTelemetry")
+        }
+    }
+}
+
+fn base64_encode(bytes: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+pub(crate) fn write_config(path: &Path, config: &AppConfig) -> anyhow::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let json = serde_json::to_string_pretty(config)?;
+    fs::write(path, json)?;
+    Ok(())
+}
+
+fn read_rgb_presets(path: &Path) -> Vec<RgbPreset> {
+    match fs::read_to_string(path) {
+        Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
+        Err(_) => Vec::new(),
+    }
+}
+
+fn write_rgb_presets(path: &Path, presets: &[RgbPreset]) -> anyhow::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let json = serde_json::to_string_pretty(presets)?;
+    fs::write(path, json)?;
+    Ok(())
+}
+
+fn write_response(writer: &mut impl Write, response: &IpcResponse) -> anyhow::Result<()> {
+    let json = serde_json::to_string(response)?;
+    writer.write_all(json.as_bytes())?;
+    writer.write_all(b"\n")?;
+    writer.flush()?;
+    Ok(())
+}

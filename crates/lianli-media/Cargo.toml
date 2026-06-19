@@ -1,0 +1,24 @@
+[package]
+name = "lianli-media"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+lianli-shared = { path = "../lianli-shared" }
+image = { workspace = true }
+turbojpeg = { workspace = true }
+ab_glyph = { workspace = true }
+tempfile = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+parking_lot = { workspace = true }
+imageproc = { workspace = true }
+fast_image_resize = { workspace = true }
+libc = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+
+[[bin]]
+name = "render-preview"
+path = "src/bin/render_preview.rs"

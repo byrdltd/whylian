@@ -1,0 +1,252 @@
+import { Theme } from "../theme.slint";
+import { Button, ScrollView, Palette } from "std-widgets.slint";
+
+export struct CatalogEntry {
+    id: string,
+    name: string,
+    description: string,
+    author: string,
+    preview: image,
+    preview-loaded: bool,
+    install-state: string,  // "idle", "installing", "installed", "error"
+    install-error: string,
+    base-width: int,
+    base-height: int,
+    rotated: bool,
+}
+
+component CatalogCard inherits Rectangle {
+    in property <CatalogEntry> entry;
+    callback install-clicked(string);
+
+    height: 180px;
+    background: Theme.sidebar-background;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: Theme.border;
+
+    HorizontalLayout {
+        padding: 12px;
+        spacing: 16px;
+
+        Rectangle {
+            width: 156px;
+            height: 156px;
+            background: #0a0e14;
+            border-radius: 4px;
+            clip: true;
+
+            if root.entry.preview-loaded: Image {
+                source: root.entry.preview;
+                image-fit: contain;
+                width: parent.width;
+                height: parent.height;
+            }
+            if !root.entry.preview-loaded: Text {
+                text: "loading…";
+                color: Theme.text-secondary;
+                font-size: 11px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                width: parent.width;
+                height: parent.height;
+            }
+        }
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 4px;
+
+            Text {
+                text: root.entry.name;
+                font-size: 18px;
+                font-weight: 700;
+                color: Theme.text-primary;
+            }
+            Text {
+                text: "by " + root.entry.author;
+                font-size: 11px;
+                color: Theme.text-secondary;
+            }
+            Rectangle { height: 2px; }
+            HorizontalLayout {
+                spacing: 6px;
+                alignment: start;
+                Rectangle {
+                    background: Theme.accent.transparentize(0.85);
+                    border-radius: 3px;
+                    border-width: 1px;
+                    border-color: Theme.accent.transparentize(0.7);
+                    horizontal-stretch: 0;
+                    HorizontalLayout {
+                        padding-left: 6px;
+                        padding-right: 6px;
+                        padding-top: 2px;
+                        padding-bottom: 2px;
+                        Text {
+                            text: "\{root.entry.base-width}×\{root.entry.base-height}";
+                            font-size: 10px;
+                            color: Theme.text-primary;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+                if root.entry.rotated: Rectangle {
+                    background: #3d2a14;
+                    border-radius: 3px;
+                    border-width: 1px;
+                    border-color: #5a4022;
+                    horizontal-stretch: 0;
+                    HorizontalLayout {
+                        padding-left: 6px;
+                        padding-right: 6px;
+                        padding-top: 2px;
+                        padding-bottom: 2px;
+                        Text {
+                            text: "Rotated 90°";
+                            font-size: 10px;
+                            color: #f0c080;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+            Rectangle { height: 2px; }
+            Text {
+                text: root.entry.description;
+                font-size: 12px;
+                color: Theme.text-secondary;
+                wrap: word-wrap;
+                vertical-stretch: 1;
+            }
+
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+
+                if root.entry.install-state == "error": Text {
+                    text: root.entry.install-error;
+                    color: #e04646;
+                    font-size: 11px;
+                    vertical-alignment: center;
+                }
+
+                Button {
+                    text: root.entry.install-state == "installing" ? "Installing…"
+                        : root.entry.install-state == "installed" ? "Installed ✓"
+                        : "Install";
+                    enabled: root.entry.install-state != "installing"
+                        && root.entry.install-state != "installed";
+                    clicked => { root.install-clicked(root.entry.id); }
+                }
+            }
+        }
+    }
+}
+
+export component TemplateBrowserWindow inherits Window {
+    title: "Browse Online Templates";
+    preferred-width: 720px;
+    preferred-height: 640px;
+    min-width: 560px;
+    min-height: 400px;
+    background: Palette.background;
+    icon: @image-url("../../../../assets/icons/icon.png");
+
+    in-out property <[CatalogEntry]> templates: [];
+    in-out property <bool> loading: false;
+    in-out property <string> error-message: "";
+
+    callback refresh-requested();
+    callback install-requested(string);
+    callback publishing-guide-requested();
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 12px;
+
+        HorizontalLayout {
+            spacing: 12px;
+            Text {
+                text: "Browse Online Templates";
+                font-size: 18px;
+                font-weight: 700;
+                color: Theme.text-primary;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+            Button {
+                text: "Publishing Guide";
+                clicked => { root.publishing-guide-requested(); }
+            }
+            Button {
+                text: "Refresh";
+                enabled: !root.loading;
+                clicked => { root.refresh-requested(); }
+            }
+        }
+
+        if root.loading: Rectangle {
+            vertical-stretch: 1;
+            Text {
+                text: "Loading catalog…";
+                color: Theme.text-secondary;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        if !root.loading && root.error-message != "": VerticalLayout {
+            vertical-stretch: 1;
+            padding-left: 40px;
+            padding-right: 40px;
+            padding-top: 60px;
+            alignment: start;
+            Rectangle {
+                background: #2a1414;
+                border-radius: 6px;
+                border-width: 1px;
+                border-color: #5a1a1a;
+                VerticalLayout {
+                    padding: 20px;
+                    spacing: 10px;
+                    Text {
+                        text: "Couldn't load template catalog";
+                        font-size: 15px;
+                        font-weight: 700;
+                        color: #ff8a8a;
+                        horizontal-alignment: center;
+                    }
+                    Text {
+                        text: root.error-message;
+                        font-size: 12px;
+                        color: #d0a0a0;
+                        horizontal-alignment: center;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+        }
+
+        if !root.loading && root.error-message == "" && root.templates.length == 0: Rectangle {
+            vertical-stretch: 1;
+            Text {
+                text: "No templates available for your daemon version.";
+                color: Theme.text-secondary;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        if !root.loading && root.error-message == "" && root.templates.length > 0: ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout {
+                spacing: 12px;
+                for entry in root.templates: CatalogCard {
+                    entry: entry;
+                    install-clicked(id) => { root.install-requested(id); }
+                }
+            }
+        }
+    }
+}

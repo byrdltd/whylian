@@ -1,0 +1,6 @@
+[submodule "vendor/tinyuz"]
+	path = vendor/tinyuz
+	url = https://github.com/sisong/tinyuz.git
+[submodule "vendor/HDiffPatch"]
+	path = vendor/HDiffPatch
+	url = https://github.com/sisong/HDiffPatch.git

@@ -1,0 +1,30 @@
+[package]
+name = "lianli-devices"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+lianli-shared = { path = "../lianli-shared" }
+lianli-transport = { path = "../lianli-transport" }
+cbc = { workspace = true }
+des = { workspace = true }
+hex = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+parking_lot = { workspace = true }
+once_cell = { workspace = true }
+rusb = { workspace = true }
+hidapi = { workspace = true }
+image = { workspace = true }
+turbojpeg = { workspace = true }
+time = { workspace = true }
+clap = { workspace = true }
+
+[build-dependencies]
+cc = "1.0"
+
+[[bin]]
+name = "desktop-mode-probe"
+path = "src/bin/desktop_mode_probe.rs"

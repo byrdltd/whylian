@@ -1,0 +1,904 @@
+import { Theme } from "../../theme.slint";
+import { Button, ScrollView } from "std-widgets.slint";
+import { EditorRange, EditorGradientStop, EditorWidget } from "types.slint";
+import {
+    LabeledSpinBox, LabeledLineEdit, LabeledComboValue, LabeledComboIndex,
+    LabeledCheckBox, RgbaRow, BareSpinBox, BareLineEdit,
+} from "inputs.slint";
+
+export component PropertiesPanel inherits Rectangle {
+    in property <int> selected-index;
+    in property <EditorWidget> selected-widget;
+    in property <[EditorRange]> selected-ranges;
+    in property <[EditorGradientStop]> selected-gradient-stops;
+    in property <[string]> sensor-options;
+    in property <[string]> font-names;
+    in property <[string]> align-options;
+
+    callback widget-field(int, string, string);
+    callback range-field(int, string, string);
+    callback range-added();
+    callback gradient-stop-field(int, string, string);
+    callback gradient-stop-added();
+    callback gradient-stop-removed(int);
+    callback range-removed(int);
+    callback widget-removed(int);
+    callback pick-widget-image(int);
+
+    background: Theme.sidebar-background;
+    border-width: 0px;
+    border-color: Theme.border;
+    clip: true;
+
+    ScrollView {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        viewport-width: self.width;
+        horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
+        VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+            alignment: start;
+
+            if root.selected-index < 0: Text {
+                text: "Select a widget to edit its properties.";
+                font-size: 11px;
+                color: Theme.text-secondary;
+                wrap: word-wrap;
+            }
+
+            if root.selected-index >= 0: VerticalLayout {
+                spacing: 8px;
+
+                Text {
+                    text: "Properties - " + root.selected-widget.kind-label;
+                    font-size: 13px;
+                    font-weight: 700;
+                    color: Theme.text-primary;
+                }
+
+                LabeledLineEdit {
+                    label: "ID";
+                    value: root.selected-widget.id;
+                    edited(v) => { root.widget-field(root.selected-index, "id", v); }
+                }
+
+                LabeledSpinBox {
+                    label: "X";
+                    value: root.selected-widget.x;
+                    minimum: 0;
+                    maximum: 10000;
+                    edited(v) => { root.widget-field(root.selected-index, "x", v); }
+                }
+                LabeledSpinBox {
+                    label: "Y";
+                    value: root.selected-widget.y;
+                    minimum: 0;
+                    maximum: 10000;
+                    edited(v) => { root.widget-field(root.selected-index, "y", v); }
+                }
+                LabeledSpinBox {
+                    label: "Width";
+                    value: root.selected-widget.width;
+                    minimum: 1;
+                    maximum: 10000;
+                    edited(v) => { root.widget-field(root.selected-index, "width", v); }
+                }
+                LabeledSpinBox {
+                    label: "Height";
+                    value: root.selected-widget.height;
+                    minimum: 1;
+                    maximum: 10000;
+                    edited(v) => { root.widget-field(root.selected-index, "height", v); }
+                }
+                LabeledSpinBox {
+                    label: "Rotate°";
+                    value: root.selected-widget.rotation;
+                    minimum: -360;
+                    maximum: 360;
+                    edited(v) => { root.widget-field(root.selected-index, "rotation", v); }
+                }
+
+                LabeledCheckBox {
+                    text: "Visible";
+                    checked: root.selected-widget.visible;
+                    toggled(c) => { root.widget-field(root.selected-index, "visible", c ? "true" : "false"); }
+                }
+
+                Rectangle { height: 1px; background: Theme.border; }
+
+                if root.selected-widget.kind == "label"
+                   || root.selected-widget.kind == "value_text"
+                   || root.selected-widget.kind == "clock_digital"
+                   || root.selected-widget.kind == "clock_analog": VerticalLayout {
+                    spacing: 6px;
+                    if root.selected-widget.kind == "label" : LabeledLineEdit {
+                        label: "Text";
+                        value: root.selected-widget.text;
+                        edited(v) => { root.widget-field(root.selected-index, "text", v); }
+                    }
+                    if root.selected-widget.kind == "clock_digital" : LabeledLineEdit {
+                        label: "Time format (strftime)";
+                        value: root.selected-widget.format;
+                        edited(v) => { root.widget-field(root.selected-index, "format", v); }
+                    }
+                    LabeledSpinBox {
+                        label: root.selected-widget.kind == "clock_analog" ? "Numbers size" : "Font size";
+                        value: root.selected-widget.font-size;
+                        minimum: 6;
+                        maximum: 400;
+                        edited(v) => { root.widget-field(root.selected-index, "font_size", v); }
+                    }
+                    LabeledComboValue {
+                        label: root.selected-widget.kind == "clock_analog" ? "Numbers font" : "Font";
+                        model: root.font-names;
+                        value: root.selected-widget.font-name;
+                        selected(v) => { root.widget-field(root.selected-index, "font", v); }
+                    }
+                    if root.selected-widget.kind != "clock_analog" : LabeledComboValue {
+                        label: "Align";
+                        model: root.align-options;
+                        value: root.selected-widget.align;
+                        selected(v) => { root.widget-field(root.selected-index, "align", v); }
+                    }
+                    RgbaRow {
+                        title: root.selected-widget.kind == "clock_analog" ? "Numbers color (R / G / B / A)" : "Color (R / G / B / A)";
+                        r: root.selected-widget.color-r;
+                        g: root.selected-widget.color-g;
+                        b: root.selected-widget.color-b;
+                        a: root.selected-widget.color-a;
+                        edited(ch, v) => { root.widget-field(root.selected-index, "color_" + ch, v); }
+                    }
+                    if root.selected-widget.kind != "clock_analog" : LabeledSpinBox {
+                        label: "Letter spacing";
+                        value: root.selected-widget.letter-spacing;
+                        minimum: -20;
+                        maximum: 80;
+                        edited(v) => { root.widget-field(root.selected-index, "letter_spacing", v); }
+                    }
+                }
+
+                if root.selected-widget.kind == "value_text": VerticalLayout {
+                    spacing: 6px;
+                    LabeledLineEdit {
+                        label: "Format";
+                        value: root.selected-widget.format;
+                        edited(v) => { root.widget-field(root.selected-index, "format", v); }
+                    }
+                    LabeledLineEdit {
+                        label: "Unit";
+                        value: root.selected-widget.unit;
+                        edited(v) => { root.widget-field(root.selected-index, "unit", v); }
+                    }
+                }
+
+                if root.selected-widget.kind == "radial_gauge": LabeledCheckBox {
+                    text: "Gradient fill";
+                    checked: root.selected-widget.gauge-gradient;
+                    toggled(c) => { root.widget-field(root.selected-index, "gradient", c ? "true" : "false"); }
+                }
+
+                if root.selected-widget.kind == "radial_gauge" && root.selected-widget.gauge-gradient: VerticalLayout {
+                    spacing: 6px;
+
+                    Text {
+                        text: "Gradient points (% / R / G / B / A)";
+                        font-size: 10px;
+                        color: Theme.text-secondary;
+                    }
+
+                    for s[si] in root.selected-gradient-stops: HorizontalLayout {
+                        spacing: 3px;
+                        height: 28px;
+
+                        BareSpinBox {
+                            width: 96px;
+                            horizontal-stretch: 0;
+                            value: s.position-pct;
+                            minimum: 0;
+                            maximum: 100;
+                            edited(v) => { root.gradient-stop-field(si, "position", v); }
+                        }
+
+                        BareSpinBox {
+                            width: 96px;
+                            horizontal-stretch: 0;
+                            value: s.color-r;
+                            edited(v) => { root.gradient-stop-field(si, "color_r", v); }
+                        }
+
+                        BareSpinBox {
+                            width: 96px;
+                            horizontal-stretch: 0;
+                            value: s.color-g;
+                            edited(v) => { root.gradient-stop-field(si, "color_g", v); }
+                        }
+
+                        BareSpinBox {
+                            width: 96px;
+                            horizontal-stretch: 0;
+                            value: s.color-b;
+                            edited(v) => { root.gradient-stop-field(si, "color_b", v); }
+                        }
+
+                        BareSpinBox {
+                            width: 96px;
+                            horizontal-stretch: 0;
+                            value: s.color-a;
+                            edited(v) => { root.gradient-stop-field(si, "color_a", v); }
+                        }
+
+                        Button {
+                            text: "✕";
+                            horizontal-stretch: 1;
+                            height: 28px;
+                            clicked => { root.gradient-stop-removed(si); }
+                        }
+                    }
+
+                    Button {
+                        text: "+ Add gradient point";
+                        clicked => { root.gradient-stop-added(); }
+                    }
+
+                    Text {
+                        text: "Color ranges are ignored while gradient fill is enabled.";
+                        font-size: 10px;
+                        color: Theme.text-secondary;
+                        wrap: word-wrap;
+                    }
+                }
+
+                if (root.selected-widget.kind == "radial_gauge"
+                    || root.selected-widget.kind == "vertical_bar"
+                    || root.selected-widget.kind == "horizontal_bar"
+                    || root.selected-widget.kind == "speedometer"
+                    || root.selected-widget.kind == "core_bars"
+                    || root.selected-widget.kind == "value_text"
+                    || root.selected-widget.kind == "sparkline"): VerticalLayout {
+                    spacing: 6px;
+                    LabeledComboIndex {
+                        label: "Sensor";
+                        model: root.sensor-options;
+                        index: root.selected-widget.source-index;
+                        selected(v) => { root.widget-field(root.selected-index, "source", v); }
+                    }
+                    if root.selected-widget.source-index == (root.sensor-options.length - 1): LabeledLineEdit {
+                        label: "Command";
+                        value: root.selected-widget.command;
+                        edited(v) => { root.widget-field(root.selected-index, "command", v); }
+                    }
+                    LabeledSpinBox {
+                        label: "Min";
+                        value: root.selected-widget.value-min;
+                        minimum: -100000;
+                        maximum: 100000;
+                        edited(v) => { root.widget-field(root.selected-index, "value_min", v); }
+                    }
+                    LabeledSpinBox {
+                        label: "Max";
+                        value: root.selected-widget.value-max;
+                        minimum: -100000;
+                        maximum: 100000;
+                        edited(v) => { root.widget-field(root.selected-index, "value_max", v); }
+                    }
+                }
+
+                if root.selected-widget.kind == "radial_gauge"
+                   || root.selected-widget.kind == "speedometer": VerticalLayout {
+                    spacing: 6px;
+                    LabeledSpinBox {
+                        label: "Start °";
+                        value: root.selected-widget.start-angle;
+                        minimum: -360;
+                        maximum: 720;
+                        edited(v) => { root.widget-field(root.selected-index, "start_angle", v); }
+                    }
+                    LabeledSpinBox {
+                        label: "Sweep °";
+                        value: root.selected-widget.sweep-angle;
+                        minimum: 1;
+                        maximum: 360;
+                        edited(v) => { root.widget-field(root.selected-index, "sweep_angle", v); }
+                    }
+                }
+
+                if root.selected-widget.kind == "radial_gauge": VerticalLayout {
+                    spacing: 6px;
+                    LabeledSpinBox {
+                        label: "Ring thickness %";
+                        value: root.selected-widget.ring-thickness-pct;
+                        minimum: 1;
+                        maximum: 100;
+                        edited(v) => { root.widget-field(root.selected-index, "ring_thickness_pct", v); }
+                    }
+                    LabeledSpinBox {
+                        label: "Bg corner radius";
+                        value: root.selected-widget.bg-corner-radius;
+                        minimum: 0;
+                        maximum: 200;
+                        edited(v) => { root.widget-field(root.selected-index, "bg_corner_radius", v); }
+                    }
+                    LabeledSpinBox {
+                        label: "Value corner radius";
+                        value: root.selected-widget.value-corner-radius;
+                        minimum: 0;
+                        maximum: 200;
+                        edited(v) => { root.widget-field(root.selected-index, "value_corner_radius", v); }
+                    }
+                }
+
+                if root.selected-widget.kind == "vertical_bar"
+                   || root.selected-widget.kind == "horizontal_bar": LabeledSpinBox {
+                    label: "Corner radius";
+                    value: root.selected-widget.corner-radius;
+                    minimum: 0;
+                    maximum: 200;
+                    edited(v) => { root.widget-field(root.selected-index, "corner_radius", v); }
+                }
+
+                if root.selected-widget.kind == "speedometer": VerticalLayout {
+                    spacing: 6px;
+                    LabeledCheckBox {
+                        text: "Show gauge (arc + ticks)";
+                        checked: root.selected-widget.show-gauge;
+                        toggled(c) => { root.widget-field(root.selected-index, "show_gauge", c ? "true" : "false"); }
+                    }
+                    LabeledCheckBox {
+                        text: "Show needle";
+                        checked: root.selected-widget.show-needle;
+                        toggled(c) => { root.widget-field(root.selected-index, "show_needle", c ? "true" : "false"); }
+                    }
+                    LabeledSpinBox {
+                        label: "Needle width";
+                        value: root.selected-widget.needle-width;
+                        minimum: 1;
+                        maximum: 60;
+                        edited(v) => { root.widget-field(root.selected-index, "needle_width", v); }
+                    }
+                    LabeledSpinBox {
+                        label: "Needle %";
+                        value: root.selected-widget.needle-length-pct;
+                        minimum: 10;
+                        maximum: 150;
+                        edited(v) => { root.widget-field(root.selected-index, "needle_length_pct", v); }
+                    }
+                    RgbaRow {
+                        title: "Needle color (R / G / B / A)";
+                        r: root.selected-widget.needle-color-r;
+                        g: root.selected-widget.needle-color-g;
+                        b: root.selected-widget.needle-color-b;
+                        a: root.selected-widget.needle-color-a;
+                        edited(ch, v) => { root.widget-field(root.selected-index, "needle_color_" + ch, v); }
+                    }
+                    RgbaRow {
+                        title: "Needle border (R / G / B / A)";
+                        r: root.selected-widget.needle-border-r;
+                        g: root.selected-widget.needle-border-g;
+                        b: root.selected-widget.needle-border-b;
+                        a: root.selected-widget.needle-border-a;
+                        edited(ch, v) => { root.widget-field(root.selected-index, "needle_border_" + ch, v); }
+                    }
+                    LabeledSpinBox {
+                        label: "Border width";
+                        value: root.selected-widget.needle-border-width;
+                        minimum: 0;
+                        maximum: 20;
+                        edited(v) => { root.widget-field(root.selected-index, "needle_border_width", v); }
+                    }
+                    RgbaRow {
+                        title: "Tick color (R / G / B / A)";
+                        r: root.selected-widget.tick-color-r;
+                        g: root.selected-widget.tick-color-g;
+                        b: root.selected-widget.tick-color-b;
+                        a: root.selected-widget.tick-color-a;
+                        edited(ch, v) => { root.widget-field(root.selected-index, "tick_color_" + ch, v); }
+                    }
+                    RgbaRow {
+                        title: "Gauge background (R / G / B / A)";
+                        r: root.selected-widget.bg-r;
+                        g: root.selected-widget.bg-g;
+                        b: root.selected-widget.bg-b;
+                        a: root.selected-widget.bg-a;
+                        edited(ch, v) => { root.widget-field(root.selected-index, "bg_" + ch, v); }
+                    }
+                }
+
+                if root.selected-widget.kind == "vertical_bar"
+                   || root.selected-widget.kind == "horizontal_bar"
+                   || root.selected-widget.kind == "radial_gauge"
+                   || root.selected-widget.kind == "core_bars"
+                   || root.selected-widget.kind == "sparkline": RgbaRow {
+                    title: "Background (R / G / B / A)";
+                    r: root.selected-widget.bg-r;
+                    g: root.selected-widget.bg-g;
+                    b: root.selected-widget.bg-b;
+                    a: root.selected-widget.bg-a;
+                    edited(ch, v) => { root.widget-field(root.selected-index, "bg_" + ch, v); }
+                }
+
+                if root.selected-widget.kind == "sparkline": VerticalLayout {
+                    spacing: 6px;
+                    LabeledCheckBox {
+                        text: "Auto range (ignore min/max)";
+                        checked: root.selected-widget.sparkline-auto-range;
+                        toggled(c) => { root.widget-field(root.selected-index, "sparkline_auto_range", c ? "true" : "false"); }
+                    }
+                    LabeledSpinBox {
+                        label: "History samples";
+                        value: root.selected-widget.sparkline-history;
+                        minimum: 2;
+                        maximum: 2000;
+                        edited(v) => { root.widget-field(root.selected-index, "sparkline_history", v); }
+                    }
+                    LabeledSpinBox {
+                        label: "Line width";
+                        value: root.selected-widget.sparkline-line-width;
+                        minimum: 1;
+                        maximum: 40;
+                        edited(v) => { root.widget-field(root.selected-index, "sparkline_line_width", v); }
+                    }
+                    RgbaRow {
+                        title: "Line color (R / G / B / A)";
+                        r: root.selected-widget.sparkline-line-r;
+                        g: root.selected-widget.sparkline-line-g;
+                        b: root.selected-widget.sparkline-line-b;
+                        a: root.selected-widget.sparkline-line-a;
+                        edited(ch, v) => { root.widget-field(root.selected-index, "sparkline_line_" + ch, v); }
+                    }
+                    RgbaRow {
+                        title: "Fill under curve (alpha 0 = disabled)";
+                        r: root.selected-widget.sparkline-fill-r;
+                        g: root.selected-widget.sparkline-fill-g;
+                        b: root.selected-widget.sparkline-fill-b;
+                        a: root.selected-widget.sparkline-fill-a;
+                        edited(ch, v) => { root.widget-field(root.selected-index, "sparkline_fill_" + ch, v); }
+                    }
+                    LabeledCheckBox {
+                        text: "Fill uses color ranges (alpha above scales it)";
+                        checked: root.selected-widget.sparkline-fill-from-ranges;
+                        toggled(c) => { root.widget-field(root.selected-index, "sparkline_fill_from_ranges", c ? "true" : "false"); }
+                    }
+                    LabeledCheckBox {
+                        text: "Blend range colors (gradient transitions)";
+                        checked: root.selected-widget.sparkline-range-blend;
+                        toggled(c) => { root.widget-field(root.selected-index, "sparkline_range_blend", c ? "true" : "false"); }
+                    }
+                    LabeledCheckBox {
+                        text: "Smooth (curve interpolation)";
+                        checked: root.selected-widget.sparkline-smooth;
+                        toggled(c) => { root.widget-field(root.selected-index, "sparkline_smooth", c ? "true" : "false"); }
+                    }
+                    LabeledCheckBox {
+                        text: "Scroll right-to-left (newest on left)";
+                        checked: root.selected-widget.sparkline-rtl;
+                        toggled(c) => { root.widget-field(root.selected-index, "sparkline_rtl", c ? "true" : "false"); }
+                    }
+                    LabeledSpinBox {
+                        label: "Padding (px)";
+                        value: root.selected-widget.sparkline-padding;
+                        minimum: 0;
+                        maximum: 200;
+                        edited(v) => { root.widget-field(root.selected-index, "sparkline_padding", v); }
+                    }
+                    LabeledSpinBox {
+                        label: "Corner radius";
+                        value: root.selected-widget.sparkline-corner-radius;
+                        minimum: 0;
+                        maximum: 200;
+                        edited(v) => { root.widget-field(root.selected-index, "sparkline_corner_radius", v); }
+                    }
+                    RgbaRow {
+                        title: "Border color (R / G / B / A)";
+                        r: root.selected-widget.sparkline-border-r;
+                        g: root.selected-widget.sparkline-border-g;
+                        b: root.selected-widget.sparkline-border-b;
+                        a: root.selected-widget.sparkline-border-a;
+                        edited(ch, v) => { root.widget-field(root.selected-index, "sparkline_border_" + ch, v); }
+                    }
+                    LabeledSpinBox {
+                        label: "Border width";
+                        value: root.selected-widget.sparkline-border-width;
+                        minimum: 0;
+                        maximum: 40;
+                        edited(v) => { root.widget-field(root.selected-index, "sparkline_border_width", v); }
+                    }
+                    LabeledCheckBox {
+                        text: "Show points (dots at samples)";
+                        checked: root.selected-widget.sparkline-show-points;
+                        toggled(c) => { root.widget-field(root.selected-index, "sparkline_show_points", c ? "true" : "false"); }
+                    }
+                    LabeledSpinBox {
+                        label: "Point radius";
+                        value: root.selected-widget.sparkline-point-radius;
+                        minimum: 0;
+                        maximum: 40;
+                        edited(v) => { root.widget-field(root.selected-index, "sparkline_point_radius", v); }
+                    }
+                    LabeledCheckBox {
+                        text: "Show baseline line";
+                        checked: root.selected-widget.sparkline-show-baseline;
+                        toggled(c) => { root.widget-field(root.selected-index, "sparkline_show_baseline", c ? "true" : "false"); }
+                    }
+                    LabeledSpinBox {
+                        label: "Baseline value";
+                        value: root.selected-widget.sparkline-baseline-value;
+                        minimum: -100000;
+                        maximum: 100000;
+                        edited(v) => { root.widget-field(root.selected-index, "sparkline_baseline_value", v); }
+                    }
+                    LabeledSpinBox {
+                        label: "Baseline width";
+                        value: root.selected-widget.sparkline-baseline-width;
+                        minimum: 0;
+                        maximum: 40;
+                        edited(v) => { root.widget-field(root.selected-index, "sparkline_baseline_width", v); }
+                    }
+                    RgbaRow {
+                        title: "Baseline color (R / G / B / A)";
+                        r: root.selected-widget.sparkline-baseline-r;
+                        g: root.selected-widget.sparkline-baseline-g;
+                        b: root.selected-widget.sparkline-baseline-b;
+                        a: root.selected-widget.sparkline-baseline-a;
+                        edited(ch, v) => { root.widget-field(root.selected-index, "sparkline_baseline_" + ch, v); }
+                    }
+                    LabeledCheckBox {
+                        text: "Show gridlines";
+                        checked: root.selected-widget.sparkline-show-gridlines;
+                        toggled(c) => { root.widget-field(root.selected-index, "sparkline_show_gridlines", c ? "true" : "false"); }
+                    }
+                    LabeledSpinBox {
+                        label: "Horizontal gridlines";
+                        value: root.selected-widget.sparkline-gridlines-h;
+                        minimum: 0;
+                        maximum: 50;
+                        edited(v) => { root.widget-field(root.selected-index, "sparkline_gridlines_h", v); }
+                    }
+                    LabeledSpinBox {
+                        label: "Vertical gridlines";
+                        value: root.selected-widget.sparkline-gridlines-v;
+                        minimum: 0;
+                        maximum: 50;
+                        edited(v) => { root.widget-field(root.selected-index, "sparkline_gridlines_v", v); }
+                    }
+                    LabeledSpinBox {
+                        label: "Gridline width";
+                        value: root.selected-widget.sparkline-gridline-width;
+                        minimum: 0;
+                        maximum: 40;
+                        edited(v) => { root.widget-field(root.selected-index, "sparkline_gridline_width", v); }
+                    }
+                    RgbaRow {
+                        title: "Gridline color (R / G / B / A)";
+                        r: root.selected-widget.sparkline-gridline-r;
+                        g: root.selected-widget.sparkline-gridline-g;
+                        b: root.selected-widget.sparkline-gridline-b;
+                        a: root.selected-widget.sparkline-gridline-a;
+                        edited(ch, v) => { root.widget-field(root.selected-index, "sparkline_gridline_" + ch, v); }
+                    }
+                    LabeledCheckBox {
+                        text: "Show axis labels";
+                        checked: root.selected-widget.sparkline-show-axis-labels;
+                        toggled(c) => { root.widget-field(root.selected-index, "sparkline_show_axis_labels", c ? "true" : "false"); }
+                    }
+                    LabeledSpinBox {
+                        label: "Label count";
+                        value: root.selected-widget.sparkline-axis-label-count;
+                        minimum: 2;
+                        maximum: 20;
+                        edited(v) => { root.widget-field(root.selected-index, "sparkline_axis_label_count", v); }
+                    }
+                    LabeledCheckBox {
+                        text: "Labels on right side";
+                        checked: root.selected-widget.sparkline-axis-labels-on-right;
+                        toggled(c) => { root.widget-field(root.selected-index, "sparkline_axis_labels_on_right", c ? "true" : "false"); }
+                    }
+                    LabeledLineEdit {
+                        label: "Label format";
+                        value: root.selected-widget.sparkline-axis-label-format;
+                        edited(v) => { root.widget-field(root.selected-index, "sparkline_axis_label_format", v); }
+                    }
+                    LabeledComboValue {
+                        label: "Label font";
+                        model: root.font-names;
+                        value: root.selected-widget.sparkline-axis-font-name;
+                        selected(v) => { root.widget-field(root.selected-index, "sparkline_axis_font", v); }
+                    }
+                    LabeledSpinBox {
+                        label: "Label size";
+                        value: root.selected-widget.sparkline-axis-label-size;
+                        minimum: 6;
+                        maximum: 100;
+                        edited(v) => { root.widget-field(root.selected-index, "sparkline_axis_label_size", v); }
+                    }
+                    RgbaRow {
+                        title: "Label color (R / G / B / A)";
+                        r: root.selected-widget.sparkline-axis-label-r;
+                        g: root.selected-widget.sparkline-axis-label-g;
+                        b: root.selected-widget.sparkline-axis-label-b;
+                        a: root.selected-widget.sparkline-axis-label-a;
+                        edited(ch, v) => { root.widget-field(root.selected-index, "sparkline_axis_label_" + ch, v); }
+                    }
+                    LabeledSpinBox {
+                        label: "Label padding";
+                        value: root.selected-widget.sparkline-axis-label-padding;
+                        minimum: 0;
+                        maximum: 100;
+                        edited(v) => { root.widget-field(root.selected-index, "sparkline_axis_label_padding", v); }
+                    }
+                }
+
+                if root.selected-widget.kind == "core_bars": LabeledCheckBox {
+                    text: "Show core numbers";
+                    checked: root.selected-widget.show-labels;
+                    toggled(c) => { root.widget-field(root.selected-index, "show_labels", c ? "true" : "false"); }
+                }
+
+                if root.selected-widget.kind == "clock_analog": VerticalLayout {
+                    spacing: 6px;
+                    RgbaRow {
+                        title: "Face color (R / G / B / A)";
+                        r: root.selected-widget.bg-r;
+                        g: root.selected-widget.bg-g;
+                        b: root.selected-widget.bg-b;
+                        a: root.selected-widget.bg-a;
+                        edited(ch, v) => { root.widget-field(root.selected-index, "bg_" + ch, v); }
+                    }
+                    LabeledCheckBox {
+                        text: "Show seconds hand";
+                        checked: root.selected-widget.clock-show-seconds;
+                        toggled(c) => { root.widget-field(root.selected-index, "clock_show_seconds", c ? "true" : "false"); }
+                    }
+                    LabeledCheckBox {
+                        text: "Show hour ticks";
+                        checked: root.selected-widget.clock-show-hour-ticks;
+                        toggled(c) => { root.widget-field(root.selected-index, "clock_show_hour_ticks", c ? "true" : "false"); }
+                    }
+                    LabeledCheckBox {
+                        text: "Show minor ticks";
+                        checked: root.selected-widget.clock-show-minor-ticks;
+                        toggled(c) => { root.widget-field(root.selected-index, "clock_show_minor_ticks", c ? "true" : "false"); }
+                    }
+                    LabeledCheckBox {
+                        text: "Show numbers";
+                        checked: root.selected-widget.clock-show-numbers;
+                        toggled(c) => { root.widget-field(root.selected-index, "clock_show_numbers", c ? "true" : "false"); }
+                    }
+                    RgbaRow {
+                        title: "Hour tick color (R / G / B / A)";
+                        r: root.selected-widget.tick-color-r;
+                        g: root.selected-widget.tick-color-g;
+                        b: root.selected-widget.tick-color-b;
+                        a: root.selected-widget.tick-color-a;
+                        edited(ch, v) => { root.widget-field(root.selected-index, "tick_color_" + ch, v); }
+                    }
+                    RgbaRow {
+                        title: "Minor tick color (R / G / B / A)";
+                        r: root.selected-widget.clock-minor-tick-r;
+                        g: root.selected-widget.clock-minor-tick-g;
+                        b: root.selected-widget.clock-minor-tick-b;
+                        a: root.selected-widget.clock-minor-tick-a;
+                        edited(ch, v) => { root.widget-field(root.selected-index, "clock_minor_tick_" + ch, v); }
+                    }
+                    RgbaRow {
+                        title: "Hour hand color (R / G / B / A)";
+                        r: root.selected-widget.needle-color-r;
+                        g: root.selected-widget.needle-color-g;
+                        b: root.selected-widget.needle-color-b;
+                        a: root.selected-widget.needle-color-a;
+                        edited(ch, v) => { root.widget-field(root.selected-index, "needle_color_" + ch, v); }
+                    }
+                    RgbaRow {
+                        title: "Minute hand color (R / G / B / A)";
+                        r: root.selected-widget.needle-border-r;
+                        g: root.selected-widget.needle-border-g;
+                        b: root.selected-widget.needle-border-b;
+                        a: root.selected-widget.needle-border-a;
+                        edited(ch, v) => { root.widget-field(root.selected-index, "needle_border_" + ch, v); }
+                    }
+                    RgbaRow {
+                        title: "Second hand color (R / G / B / A)";
+                        r: root.selected-widget.clock-second-hand-r;
+                        g: root.selected-widget.clock-second-hand-g;
+                        b: root.selected-widget.clock-second-hand-b;
+                        a: root.selected-widget.clock-second-hand-a;
+                        edited(ch, v) => { root.widget-field(root.selected-index, "clock_second_hand_" + ch, v); }
+                    }
+                    RgbaRow {
+                        title: "Hub color (R / G / B / A)";
+                        r: root.selected-widget.clock-hub-r;
+                        g: root.selected-widget.clock-hub-g;
+                        b: root.selected-widget.clock-hub-b;
+                        a: root.selected-widget.clock-hub-a;
+                        edited(ch, v) => { root.widget-field(root.selected-index, "clock_hub_" + ch, v); }
+                    }
+                    LabeledSpinBox {
+                        label: "Hour hand width";
+                        value: root.selected-widget.clock-hour-hand-width;
+                        minimum: 1;
+                        maximum: 40;
+                        edited(v) => { root.widget-field(root.selected-index, "clock_hour_hand_width", v); }
+                    }
+                    LabeledSpinBox {
+                        label: "Minute hand width";
+                        value: root.selected-widget.clock-minute-hand-width;
+                        minimum: 1;
+                        maximum: 40;
+                        edited(v) => { root.widget-field(root.selected-index, "clock_minute_hand_width", v); }
+                    }
+                    LabeledSpinBox {
+                        label: "Second hand width";
+                        value: root.selected-widget.clock-second-hand-width;
+                        minimum: 1;
+                        maximum: 40;
+                        edited(v) => { root.widget-field(root.selected-index, "clock_second_hand_width", v); }
+                    }
+                    LabeledSpinBox {
+                        label: "Hour hand length %";
+                        value: root.selected-widget.clock-hour-length-pct;
+                        minimum: 10;
+                        maximum: 120;
+                        edited(v) => { root.widget-field(root.selected-index, "clock_hour_length_pct", v); }
+                    }
+                    LabeledSpinBox {
+                        label: "Minute hand length %";
+                        value: root.selected-widget.clock-minute-length-pct;
+                        minimum: 10;
+                        maximum: 120;
+                        edited(v) => { root.widget-field(root.selected-index, "clock_minute_length_pct", v); }
+                    }
+                    LabeledSpinBox {
+                        label: "Second hand length %";
+                        value: root.selected-widget.clock-second-length-pct;
+                        minimum: 10;
+                        maximum: 120;
+                        edited(v) => { root.widget-field(root.selected-index, "clock_second_length_pct", v); }
+                    }
+                    LabeledSpinBox {
+                        label: "Hour tick length %";
+                        value: root.selected-widget.clock-hour-tick-length-pct;
+                        minimum: 0;
+                        maximum: 50;
+                        edited(v) => { root.widget-field(root.selected-index, "clock_hour_tick_length_pct", v); }
+                    }
+                    LabeledSpinBox {
+                        label: "Minor tick length %";
+                        value: root.selected-widget.clock-minor-tick-length-pct;
+                        minimum: 0;
+                        maximum: 50;
+                        edited(v) => { root.widget-field(root.selected-index, "clock_minor_tick_length_pct", v); }
+                    }
+                    LabeledSpinBox {
+                        label: "Hour tick width";
+                        value: root.selected-widget.clock-hour-tick-width;
+                        minimum: 1;
+                        maximum: 20;
+                        edited(v) => { root.widget-field(root.selected-index, "clock_hour_tick_width", v); }
+                    }
+                    LabeledSpinBox {
+                        label: "Minor tick width";
+                        value: root.selected-widget.clock-minor-tick-width;
+                        minimum: 1;
+                        maximum: 20;
+                        edited(v) => { root.widget-field(root.selected-index, "clock_minor_tick_width", v); }
+                    }
+                    LabeledSpinBox {
+                        label: "Hub radius";
+                        value: root.selected-widget.clock-hub-radius;
+                        minimum: 0;
+                        maximum: 40;
+                        edited(v) => { root.widget-field(root.selected-index, "clock_hub_radius", v); }
+                    }
+                }
+
+                if (root.selected-widget.kind != "radial_gauge" || !root.selected-widget.gauge-gradient)
+                && (root.selected-widget.kind == "radial_gauge"
+                    || root.selected-widget.kind == "vertical_bar"
+                    || root.selected-widget.kind == "horizontal_bar"
+                    || root.selected-widget.kind == "speedometer"
+                    || root.selected-widget.kind == "core_bars"
+                    || root.selected-widget.kind == "value_text"
+                    || root.selected-widget.kind == "sparkline"): VerticalLayout {
+                    spacing: 6px;
+                    Text { text: "Color ranges (max value / R / G / B / A)"; font-size: 10px; color: Theme.text-secondary; }
+                    for r[ri] in root.selected-ranges: HorizontalLayout {
+                        spacing: 3px;
+                        height: 28px;
+                        BareSpinBox {
+                            width: 96px;
+                            horizontal-stretch: 0;
+                            value: r.max-pct;
+                            minimum: -1;
+                            maximum: 100;
+                            edited(v) => { root.range-field(ri, "max", v); }
+                        }
+                        BareSpinBox {
+                            width: 96px;
+                            horizontal-stretch: 0;
+                            value: r.color-r;
+                            edited(v) => { root.range-field(ri, "color_r", v); }
+                        }
+                        BareSpinBox {
+                            width: 96px;
+                            horizontal-stretch: 0;
+                            value: r.color-g;
+                            edited(v) => { root.range-field(ri, "color_g", v); }
+                        }
+                        BareSpinBox {
+                            width: 96px;
+                            horizontal-stretch: 0;
+                            value: r.color-b;
+                            edited(v) => { root.range-field(ri, "color_b", v); }
+                        }
+                        BareSpinBox {
+                            width: 96px;
+                            horizontal-stretch: 0;
+                            value: r.color-a;
+                            edited(v) => { root.range-field(ri, "color_a", v); }
+                        }
+                        Button {
+                            text: "✕";
+                            horizontal-stretch: 1;
+                            height: 28px;
+                            clicked => { root.range-removed(ri); }
+                        }
+                    }
+                    Button {
+                        text: "+ Add range";
+                        clicked => { root.range-added(); }
+                    }
+                    Text {
+                        text: "Use max = -1 for the open-ended (final) range.";
+                        font-size: 10px;
+                        color: Theme.text-secondary;
+                        wrap: word-wrap;
+                    }
+                }
+
+                if root.selected-widget.kind == "image"
+                   || root.selected-widget.kind == "video": VerticalLayout {
+                    spacing: 6px;
+                    Text { text: "File"; font-size: 10px; color: Theme.text-secondary; }
+                    HorizontalLayout {
+                        spacing: 4px;
+                        BareLineEdit {
+                            value: root.selected-widget.image-path;
+                            edited(v) => { root.widget-field(root.selected-index, "path", v); }
+                        }
+                        Button {
+                            text: "…";
+                            clicked => { root.pick-widget-image(root.selected-index); }
+                        }
+                    }
+                }
+
+                if root.selected-widget.kind == "video": LabeledSpinBox {
+                    label: "FPS";
+                    value: root.selected-widget.fps;
+                    minimum: 1;
+                    maximum: 60;
+                    edited(v) => { root.widget-field(root.selected-index, "fps", v); }
+                }
+
+                if root.selected-widget.kind != "label"
+                   && root.selected-widget.kind != "image"
+                   && root.selected-widget.kind != "video": LabeledSpinBox {
+                    label: "Update (ms)";
+                    value: root.selected-widget.update-interval-ms;
+                    minimum: 100;
+                    maximum: 10000;
+                    edited(v) => { root.widget-field(root.selected-index, "update_interval_ms", v); }
+                }
+
+                Rectangle { height: 1px; background: Theme.border; }
+
+                Button {
+                    text: "Delete Widget";
+                    clicked => { root.widget-removed(root.selected-index); }
+                }
+            }
+        }
+    }
+}

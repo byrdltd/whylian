@@ -1,0 +1,11 @@
+whyLIAN includes software developed as part of the lian-li-linux project.
+
+Upstream: https://github.com/sgtaziz/lian-li-linux
+License: MIT (Copyright (c) 2026 sgtaziz)
+
+Fork-specific changes in this repository are Copyright (c) 2026 whyLIAN Contributors
+and are also licensed under MIT unless stated otherwise.
+
+Submodules:
+- vendor/HDiffPatch — see vendor/HDiffPatch/LICENSE
+- vendor/tinyuz — see vendor/tinyuz/LICENSE

@@ -1,0 +1,15 @@
+/target/
+/.vscode/
+node_modules/
+dist/
+*.swp
+*.swo
+*~
+.DS_Store
+.idea
+.cache
+.ruff_cache/
+.pytest_cache/
+__pycache__/
+*.log
+

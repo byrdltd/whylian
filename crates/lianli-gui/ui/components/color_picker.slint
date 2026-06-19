@@ -1,0 +1,85 @@
+import { Theme } from "../theme.slint";
+import { Slider } from "std-widgets.slint";
+
+export component ColorPicker inherits VerticalLayout {
+    in-out property <int> red: 255;
+    in-out property <int> green: 255;
+    in-out property <int> blue: 255;
+    in-out property <int> alpha: 255;
+    in property <bool> show-alpha: false;
+    callback changed(int, int, int, int);
+
+    spacing: 4px;
+
+    Rectangle {
+        height: 24px;
+        border-radius: 4px;
+        background: Colors.rgba(root.red, root.green, root.blue, root.alpha / 255);
+        border-width: 1px;
+        border-color: Theme.border;
+    }
+
+    HorizontalLayout {
+        spacing: 4px;
+        Text { text: "R"; font-size: 11px; color: Theme.text-secondary; width: 14px; vertical-alignment: center; }
+        Slider {
+            horizontal-stretch: 1;
+            minimum: 0;
+            maximum: 255;
+            value: root.red;
+            changed(val) => {
+                root.red = round(val);
+                root.changed(root.red, root.green, root.blue, root.alpha);
+            }
+        }
+        Text { text: "\{root.red}"; font-size: 11px; color: Theme.text-secondary; width: 28px; vertical-alignment: center; }
+    }
+
+    HorizontalLayout {
+        spacing: 4px;
+        Text { text: "G"; font-size: 11px; color: Theme.text-secondary; width: 14px; vertical-alignment: center; }
+        Slider {
+            horizontal-stretch: 1;
+            minimum: 0;
+            maximum: 255;
+            value: root.green;
+            changed(val) => {
+                root.green = round(val);
+                root.changed(root.red, root.green, root.blue, root.alpha);
+            }
+        }
+        Text { text: "\{root.green}"; font-size: 11px; color: Theme.text-secondary; width: 28px; vertical-alignment: center; }
+    }
+
+    HorizontalLayout {
+        spacing: 4px;
+        Text { text: "B"; font-size: 11px; color: Theme.text-secondary; width: 14px; vertical-alignment: center; }
+        Slider {
+            horizontal-stretch: 1;
+            minimum: 0;
+            maximum: 255;
+            value: root.blue;
+            changed(val) => {
+                root.blue = round(val);
+                root.changed(root.red, root.green, root.blue, root.alpha);
+            }
+        }
+        Text { text: "\{root.blue}"; font-size: 11px; color: Theme.text-secondary; width: 28px; vertical-alignment: center; }
+    }
+
+    if root.show-alpha: HorizontalLayout {
+        spacing: 4px;
+        Text { text: "A"; font-size: 11px; color: Theme.text-secondary; width: 14px; vertical-alignment: center; }
+        Slider {
+            horizontal-stretch: 1;
+            minimum: 0;
+            maximum: 255;
+            value: root.alpha;
+            changed(val) => {
+                root.alpha = round(val);
+                root.changed(root.red, root.green, root.blue, root.alpha);
+            }
+        }
+        Text { text: "\{root.alpha}"; font-size: 11px; color: Theme.text-secondary; width: 28px; vertical-alignment: center; }
+    }
+}

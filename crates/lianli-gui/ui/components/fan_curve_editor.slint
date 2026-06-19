@@ -1,0 +1,186 @@
+import { Theme } from "../theme.slint";
+
+export struct CurvePoint {
+    temp: float,
+    speed: float,
+}
+
+export struct CurveSegment {
+    from-temp: float,
+    from-speed: float,
+    to-temp: float,
+    to-speed: float,
+}
+
+export component FanCurveEditor inherits Rectangle {
+    in property <string> curve-name: "";
+    in property <[CurvePoint]> points: [];
+    in property <[CurveSegment]> curve-segments: [];
+    in property <[CurveSegment]> clamp-segments: [];
+
+    callback point-moved(int, float, float);
+    callback point-added(float, float);
+    callback point-removed(int);
+
+    // Plot dimensions
+    property <length> plot-left: 40px;
+    property <length> plot-top: 10px;
+    property <length> plot-width: root.width - plot-left - 10px;
+    property <length> plot-height: root.height - plot-top - 30px;
+
+    min-height: 200px;
+    border-radius: 8px;
+    background: Theme.card-background;
+    border-width: 1px;
+    border-color: Theme.border;
+    clip: true;
+
+    // Y-axis labels
+    for label-val in [0, 25, 50, 75, 100]: Text {
+        text: "\{label-val}%";
+        font-size: 10px;
+        color: Theme.text-secondary;
+        x: 2px;
+        y: root.plot-top + root.plot-height - (label-val / 100.0 * root.plot-height) - 6px;
+        width: 34px;
+        horizontal-alignment: right;
+    }
+
+    // X-axis labels
+    for label-val in [20, 40, 60, 80, 100]: Text {
+        text: "\{label-val}°";
+        font-size: 10px;
+        color: Theme.text-secondary;
+        x: root.plot-left + ((label-val - 20) / 80.0 * root.plot-width) - 10px;
+        y: root.plot-top + root.plot-height + 4px;
+        width: 24px;
+        horizontal-alignment: center;
+    }
+
+    // Grid lines (horizontal)
+    for grid-idx in [0, 1, 2, 3, 4]: Rectangle {
+        x: root.plot-left;
+        y: root.plot-top + (grid-idx / 4.0 * root.plot-height);
+        width: root.plot-width;
+        height: 1px;
+        background: Theme.border.transparentize(0.5);
+    }
+
+    // Grid lines (vertical)
+    for grid-idx in [0, 1, 2, 3, 4]: Rectangle {
+        x: root.plot-left + (grid-idx / 4.0 * root.plot-width);
+        y: root.plot-top;
+        width: 1px;
+        height: root.plot-height;
+        background: Theme.border.transparentize(0.5);
+    }
+
+    // Clamp line segments (semi-transparent, rendered as rotated rectangles)
+    for seg in root.clamp-segments: Rectangle {
+        property <length> ax: (seg.from-temp - 20.0) / 80.0 * root.plot-width;
+        property <length> ay: (1.0 - seg.from-speed / 100.0) * root.plot-height;
+        property <length> bx: (seg.to-temp - 20.0) / 80.0 * root.plot-width;
+        property <length> by: (1.0 - seg.to-speed / 100.0) * root.plot-height;
+        property <float> dx: (bx - ax) / 1px;
+        property <float> dy: (by - ay) / 1px;
+        property <float> len: sqrt(dx * dx + dy * dy);
+
+        x: root.plot-left + ax;
+        y: root.plot-top + ay - 0.75px;
+        width: max(len * 1px, 1px);
+        height: 1.5px;
+        background: Theme.accent.transparentize(0.5);
+        transform-rotation: len > 0.1 ? atan(dy / max(dx, 0.001)) : 0deg;
+        transform-origin: {x: 0, y: 0.75px};
+    }
+
+    // Curve line segments (rendered as rotated rectangles)
+    for seg in root.curve-segments: Rectangle {
+        property <length> ax: (seg.from-temp - 20.0) / 80.0 * root.plot-width;
+        property <length> ay: (1.0 - seg.from-speed / 100.0) * root.plot-height;
+        property <length> bx: (seg.to-temp - 20.0) / 80.0 * root.plot-width;
+        property <length> by: (1.0 - seg.to-speed / 100.0) * root.plot-height;
+        property <float> dx: (bx - ax) / 1px;
+        property <float> dy: (by - ay) / 1px;
+        property <float> len: sqrt(dx * dx + dy * dy);
+
+        x: root.plot-left + ax;
+        y: root.plot-top + ay - 1px;
+        width: max(len * 1px, 1px);
+        height: 2px;
+        background: Theme.accent;
+        transform-rotation: len > 0.1 ? atan(dy / max(dx, 0.001)) : 0deg;
+        transform-origin: {x: 0, y: 1px};
+    }
+
+    // Click area for adding points
+    click-area := TouchArea {
+        x: root.plot-left;
+        y: root.plot-top;
+        width: root.plot-width;
+        height: root.plot-height;
+
+        clicked => {
+            root.point-added(
+                20.0 + (self.mouse-x / root.plot-width) * 80.0,
+                100.0 - (self.mouse-y / root.plot-height) * 100.0
+            );
+        }
+    }
+
+    // Draggable point circles — positions computed from temp/speed
+    for pt[pidx] in root.points: Rectangle {
+        x: root.plot-left + (pt.temp - 20.0) / 80.0 * root.plot-width - 5px;
+        y: root.plot-top + (1.0 - pt.speed / 100.0) * root.plot-height - 5px;
+        width: 10px;
+        height: 10px;
+        border-radius: 5px;
+        background: Theme.accent;
+        border-width: 2px;
+        border-color: Theme.accent-text;
+
+        point-touch := TouchArea {
+            moved => {
+                // mouse-x/y are relative to this TouchArea (10x10 rect).
+                // Compute absolute plot position: element_offset + mouse_pos
+                // where element_offset = (temp-20)/80 * plot-width - 5px
+                root.point-moved(
+                    pidx,
+                    20.0 + ((pt.temp - 20.0) / 80.0 * root.plot-width - 5px + self.mouse-x) / root.plot-width * 80.0,
+                    100.0 - ((1.0 - pt.speed / 100.0) * root.plot-height - 5px + self.mouse-y) / root.plot-height * 100.0
+                );
+            }
+            double-clicked => {
+                root.point-removed(pidx);
+            }
+        }
+
+        // Tooltip showing temp/speed
+        if point-touch.has-hover || point-touch.pressed: Rectangle {
+            x: 12px;
+            y: -20px;
+            width: 80px;
+            height: 18px;
+            border-radius: 3px;
+            background: Theme.text-primary;
+
+            Text {
+                text: "\{round(pt.temp)}°C → \{round(pt.speed)}%";
+                font-size: 10px;
+                color: Theme.card-background;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    // Curve name
+    if root.curve-name != "": Text {
+        text: root.curve-name;
+        font-size: 12px;
+        font-weight: 600;
+        color: Theme.text-primary;
+        x: root.plot-left + 4px;
+        y: root.plot-top + 2px;
+    }
+}

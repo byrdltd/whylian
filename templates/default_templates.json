@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "templates": [
+    {
+      "id": "cooler",
+      "name": "Cooler",
+      "description": "CPU cooler dashboard with speedometer, temperature bar, and per-core usage.",
+      "author": "Martin-Pfingstl",
+      "min_daemon_version": "0.3.3",
+      "folder": "cooler",
+      "template_file": "template.json",
+      "template_sha256": "e481b95a06203b94e8a10e8fd465caec3c4beac9da38a4a39c5bb0981e480ab0",
+      "preview": "preview.png",
+      "preview_sha256": "caad5444e723bb970a5276702c2d2b3b34f05e37afd3729cd0b54dd55c408684",
+      "base_width": 480,
+      "base_height": 480,
+      "rotated": false,
+      "files": [
+        {
+          "path": "background.png",
+          "sha256": "eb44186d4c46e861ee972bec550dbbc6cdd80ffeb6eb1bedee561f36ffae2bb8"
+        },
+        {
+          "path": "thermometer.png",
+          "sha256": "258870af82c033137c2af01322dab1e6d3eaba255d46b26d1643c3961505be7e"
+        }
+      ]
+    },
+    {
+      "id": "doublegauge",
+      "name": "Doublegauge",
+      "description": "Concentric radial gauges for CPU usage and temperature.",
+      "author": "Martin-Pfingstl",
+      "min_daemon_version": "0.3.3",
+      "folder": "doublegauge",
+      "template_file": "template.json",
+      "template_sha256": "7744722ae2ec03d56429d7330bcdca4629081e331eab58d3981776b811a234b2",
+      "preview": "preview.png",
+      "preview_sha256": "00977837140cf85d175c7142413c4b791dfb391a580791e9b3feeab2535f084e",
+      "base_width": 400,
+      "base_height": 400,
+      "rotated": false,
+      "files": [
+        {
+          "path": "background.png",
+          "sha256": "cdf1109db93d2fdde6f8b3c00b501a721e153e58b781475c537e03e9bed6f8d6"
+        }
+      ]
+    },
+    {
+      "id": "sensor_gauge",
+      "name": "Sensor Gauge",
+      "description": "Single-sensor radial gauge matching the legacy Sensor media type.",
+      "author": "sgtaziz",
+      "min_daemon_version": "0.3.4",
+      "folder": "sensor_gauge",
+      "template_file": "template.json",
+      "template_sha256": "1bfec2a0479b771e6ad79abaad40e8a74be38c2d61b7b177920b986c5d312475",
+      "preview": "preview.png",
+      "preview_sha256": "aa1538a601b782e567c8ca24c5852ac33c658a9ad4cb4c3f4143967dbccb0ba8",
+      "base_width": 400,
+      "base_height": 400,
+      "rotated": false,
+      "files": []
+    },
+    {
+      "id": "us88-skeleton",
+      "name": "Universal Screen 8.8\" Skeleton",
+      "description": "CPU, GPU, and RAM dashboard laid out across the 1920×480 Universal Screen 8.8\", over a dark skeleton backdrop.",
+      "author": "hanzzz2909",
+      "min_daemon_version": "0.3.4",
+      "folder": "us88-skeleton",
+      "template_file": "template.json",
+      "template_sha256": "7e007642cba46781caeb7afea42cd90400c68289a870daf5d86625fe499bf2f4",
+      "preview": "preview.png",
+      "preview_sha256": "5fff9ebb97d19a7fd047618a9aa58e900bd01d1f8e553cb2c037ec5988e27190",
+      "base_width": 1920,
+      "base_height": 480,
+      "rotated": true,
+      "files": [
+        {
+          "path": "background.jpg",
+          "sha256": "5d8f76cf96bb80d35bc4354c0d171e54f889a7e948dd6d0339c3011082237ed6"
+        }
+      ]
+    },
+    {
+      "id": "lancool207-a5",
+      "name": "Lancool 207 A5",
+      "description": "Recreated L-Connect 3 A5-style dashboard for the Lancool 207: CPU/GPU load rings, temperature bars, memory, clocks, drive usage, and network readouts.",
+      "author": "Lian Li",
+      "min_daemon_version": "0.4.1",
+      "folder": "lancool207-a5",
+      "template_file": "template.json",
+      "template_sha256": "04349386661c0559dc662fa2a88cdd487b811fd698e6cb5bd2d9b9238fe6d67c",
+      "preview": "preview.png",
+      "preview_sha256": "2b21221104ee93652ae49a179ca95708508556e27dc92ca084ca5f47a60802a5",
+      "base_width": 1472,
+      "base_height": 720,
+      "rotated": false,
+      "files": [
+        {
+          "path": "background.png",
+          "sha256": "ec1bef38c9097cd481e2f3496aed2dcddb930e48e68b1b3796cd91f4c7fb4a16"
+        },
+        {
+          "path": "NotoSansTC-Regular.otf",
+          "sha256": "8d9cd5f210c0204d2a1ddaeaf82db1071e242126f4e18b9c350d8b1680bae400"
+        }
+      ]
+    },
+    {
+      "id": "neon-us88",
+      "name": "Neon",
+      "description": "Neon dashboard for the Universal Screen 8.8\": radial CPU/GPU gauges, analog and digital clocks, RAM/disk readouts, CPU/GPU temperature graphs, and network throughput sparklines.",
+      "author": "sgtaziz",
+      "min_daemon_version": "0.4.1",
+      "folder": "neon-us88",
+      "template_file": "template.json",
+      "template_sha256": "b77af5e9fe6ee40a3c88948931b8d8a45666c4c42e47bb89c74fcf519bdbdf1b",
+      "preview": "preview.png",
+      "preview_sha256": "d37c21f0002b0ccb576c3ec375e81a264c815d0d263378796c10a5ac595959de",
+      "base_width": 1920,
+      "base_height": 480,
+      "rotated": true,
+      "files": [
+        {
+          "path": "background.png",
+          "sha256": "3a8b4c55868753c954a436cb85aaa2e10de20aed8b9d98caccc511900ca340a7"
+        },
+        {
+          "path": "animation.apng",
+          "sha256": "5ce7e8539240491a9767d45a1d880d62e18e3978bf7fbe55e2ef781f5b78db74"
+        },
+        {
+          "path": "JetBrainsMonoNL-Medium.ttf",
+          "sha256": "44099e1efefba55637e0abbbf8dd3f526e59523345888a257bb01d39df4af74c"
+        },
+        {
+          "path": "OFL.txt",
+          "sha256": "30f0c136e3c88e422d0791acd97238870f9054a9729bc34cf2ff0d4ed8cac4ad"
+        }
+      ]
+    }
+  ]
+}

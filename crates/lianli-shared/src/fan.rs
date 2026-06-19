@@ -1,0 +1,163 @@
+use crate::sensors::SensorSource;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct FanCurve {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temp_source: Option<SensorSource>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub temp_command: String,
+    pub curve: Vec<(f32, f32)>,
+}
+
+impl FanCurve {
+    pub fn effective_source(&self) -> SensorSource {
+        if let Some(ref source) = self.temp_source {
+            if matches!(source, SensorSource::Command { .. }) {
+                SensorSource::Command {
+                    cmd: self.temp_command.clone(),
+                }
+            } else {
+                source.clone()
+            }
+        } else if !self.temp_command.is_empty() {
+            SensorSource::Command {
+                cmd: self.temp_command.clone(),
+            }
+        } else {
+            SensorSource::Command {
+                cmd: "cat /sys/class/thermal/thermal_zone0/temp | awk '{print $1/1000}'".into(),
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum FanSpeed {
+    Constant(u8),
+    Curve(String),
+}
+
+/// Reserved curve name used to represent motherboard RPM sync mode.
+pub const MB_SYNC_KEY: &str = "__mb_sync__";
+
+/// Prefix for MB sync with a specific hwmon PWM source.
+pub const MB_SYNC_PREFIX: &str = "__mb_sync__:";
+
+impl FanSpeed {
+    pub fn is_mb_sync(&self) -> bool {
+        match self {
+            FanSpeed::Curve(name) => name == MB_SYNC_KEY || name.starts_with(MB_SYNC_PREFIX),
+            _ => false,
+        }
+    }
+
+    pub fn mb_sync_source(&self) -> Option<&str> {
+        match self {
+            FanSpeed::Curve(name) if name.starts_with(MB_SYNC_PREFIX) => {
+                Some(&name[MB_SYNC_PREFIX.len()..])
+            }
+            _ => None,
+        }
+    }
+}
+
+/// A fan speed group targeting a specific device.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct FanGroup {
+    /// Device identifier (e.g. "wireless:AA:BB:CC:DD:EE:FF" or "usb:1:5" or a serial).
+    /// When absent, groups are matched by index order to discovered devices.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<String>,
+    /// PWM per fan slot (up to 4).
+    pub speeds: [FanSpeed; 4],
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct FanConfig {
+    #[serde(deserialize_with = "deserialize_fan_groups")]
+    pub speeds: Vec<FanGroup>,
+    #[serde(default = "default_update_interval")]
+    pub update_interval_ms: u64,
+    #[serde(default = "default_hysteresis_temp")]
+    pub hysteresis_temp: f32,
+    #[serde(default = "default_hysteresis_pwm")]
+    pub hysteresis_pwm: u8,
+}
+
+impl Default for FanConfig {
+    fn default() -> Self {
+        Self {
+            speeds: vec![],
+            update_interval_ms: default_update_interval(),
+            hysteresis_temp: default_hysteresis_temp(),
+            hysteresis_pwm: default_hysteresis_pwm(),
+        }
+    }
+}
+
+fn default_update_interval() -> u64 {
+    1000
+}
+
+fn default_hysteresis_temp() -> f32 {
+    1.0
+}
+
+fn default_hysteresis_pwm() -> u8 {
+    5
+}
+
+/// Custom deserializer: accepts either the new `Vec<FanGroup>` format
+/// or the legacy `Vec<[FanSpeed; 4]>` (array of arrays) for backward compat.
+fn deserialize_fan_groups<'de, D>(deserializer: D) -> Result<Vec<FanGroup>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, SeqAccess, Visitor};
+    use std::fmt;
+
+    struct FanGroupsVisitor;
+
+    impl<'de> Visitor<'de> for FanGroupsVisitor {
+        type Value = Vec<FanGroup>;
+
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("an array of fan groups or an array of fan speed arrays")
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            let mut result = Vec::new();
+
+            while let Some(val) = seq.next_element::<serde_json::Value>()? {
+                if val.is_object() {
+                    // New format: { device_id: "...", speeds: [...] }
+                    let group: FanGroup = serde_json::from_value(val)
+                        .map_err(|e| de::Error::custom(format!("Invalid fan group: {e}")))?;
+                    result.push(group);
+                } else if val.is_array() {
+                    // Legacy format: [speed, speed, speed, speed]
+                    let speeds: [FanSpeed; 4] = serde_json::from_value(val)
+                        .map_err(|e| de::Error::custom(format!("Invalid fan speed array: {e}")))?;
+                    result.push(FanGroup {
+                        device_id: None,
+                        speeds,
+                    });
+                } else {
+                    return Err(de::Error::custom(
+                        "Expected a fan group object or speed array",
+                    ));
+                }
+            }
+
+            Ok(result)
+        }
+    }
+
+    deserializer.deserialize_seq(FanGroupsVisitor)
+}

@@ -1,0 +1,44 @@
+import { Theme } from "theme.slint";
+
+export component StatusDot inherits Rectangle {
+    in property <bool> active: false;
+    width: 8px;
+    height: 8px;
+    border-radius: 4px;
+    background: active ? Theme.status-ok : Theme.status-error;
+}
+
+export component Badge inherits Rectangle {
+    in property <string> label;
+    in property <color> badge-color: Theme.accent;
+
+    height: 20px;
+    horizontal-stretch: 0;
+    border-radius: 3px;
+    background: badge-color.transparentize(0.85);
+
+    HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 6px;
+        alignment: center;
+        Text {
+            text: root.label;
+            font-size: 10px;
+            font-weight: 500;
+            color: badge-color;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component Card inherits Rectangle {
+    background: Theme.card-background;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.border;
+
+    VerticalLayout {
+        padding: 16px;
+        @children
+    }
+}

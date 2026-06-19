@@ -1,0 +1,735 @@
+import { Theme } from "../theme.slint";
+import { Card } from "../widgets.slint";
+import { PageHeader } from "../page_header.slint";
+import { Button, ScrollView, ComboBox, LineEdit, SpinBox, GroupBox, CheckBox } from "std-widgets.slint";
+
+export struct LcdDeviceOption {
+    label: string,
+    serial: string,
+}
+
+export struct GaugeRangeData {
+    max-value: int,
+    r: int,
+    g: int,
+    b: int,
+}
+
+export struct LcdEntryData {
+    serial: string,
+    device-label: string,
+    media-type: string,
+    path: string,
+    fps: int,
+    orientation: int,
+    rgb-r: int,
+    rgb-g: int,
+    rgb-b: int,
+    // Sensor fields
+    sensor-label: string,
+    sensor-unit: string,
+    sg_sensor_index: int,
+    sensor-command: string,
+    sensor-font-path: string,
+    sensor-font-name: string,
+    sensor-decimal-places: int,
+    update-interval-ms: int,
+    sensor-value-font-size: int,
+    sensor-unit-font-size: int,
+    sensor-label-font-size: int,
+    sensor-start-angle: int,
+    sensor-sweep-angle: int,
+    sensor-outer-radius: int,
+    sensor-thickness: int,
+    sensor-corner-radius: int,
+    sensor-value-offset: int,
+    sensor-unit-offset: int,
+    sensor-label-offset: int,
+    // Sensor colors
+    sensor-text-color-r: int,
+    sensor-text-color-g: int,
+    sensor-text-color-b: int,
+    sensor-bg-color-r: int,
+    sensor-bg-color-g: int,
+    sensor-bg-color-b: int,
+    sensor-gauge-bg-r: int,
+    sensor-gauge-bg-g: int,
+    sensor-gauge-bg-b: int,
+    // Gauge ranges
+    sensor-gauge-ranges: [GaugeRangeData],
+
+    template-id: string,
+    template-name: string,
+    template-preview: image,
+    smooth-edges: bool,
+    custom-h264: bool,
+    device-supports-h264: bool,
+    supports-c-command: bool,
+    aio-512-frame: bool,
+}
+
+component OrientationButton inherits Rectangle {
+    in property <int> degrees;
+    in property <bool> active: false;
+    callback clicked();
+
+    width: 40px;
+    height: 28px;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: active ? Theme.accent : Theme.border;
+    background: active ? Theme.accent : transparent;
+
+    TouchArea { clicked => { root.clicked(); } }
+
+    Text {
+        text: "\{root.degrees}\u{00B0}";
+        font-size: 12px;
+        color: active ? Theme.accent-text : Theme.text-primary;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+component LcdConfigCard inherits Card {
+    in property <int> index;
+    in property <LcdEntryData> lcd;
+    in property <[string]> media-types: ["Image", "Video", "GIF", "Solid Color", "Sensor Gauge", "Custom"];
+    in property <[string]> device-options: [];
+    in property <[string]> sensor-options: [];
+    in property <[string]> font-options: [];
+    // Custom media type — pretty-label list mirrored from the template store.
+    // Selection propagates via `update-field(idx, "template_label", label)`,
+    // and the Rust handler resolves the label back to the template id.
+    in property <[string]> template-labels: [];
+
+    callback remove(int);
+    callback update-field(int, string, string);
+    callback pick-file(int);
+    callback create-template(int);
+    callback edit-template(int);
+    callback duplicate-template(int);
+    callback delete-template(int);
+    callback browse-templates();
+
+    VerticalLayout {
+        spacing: 12px;
+
+        // Header with remove button
+        HorizontalLayout {
+            Text {
+                text: "LCD \{root.index + 1}";
+                font-size: 14px;
+                font-weight: 600;
+                color: Theme.text-primary;
+                vertical-alignment: center;
+            }
+            Rectangle { horizontal-stretch: 1; }
+            Button {
+                text: "Remove";
+                clicked => { root.remove(root.index); }
+            }
+        }
+
+        // Device selection
+        VerticalLayout {
+            spacing: 4px;
+            Text { text: "Device"; font-size: 12px; color: Theme.text-secondary; }
+            ComboBox {
+                model: root.device-options;
+                current-value: root.lcd.device-label;
+                selected(val) => { root.update-field(root.index, "device", val); }
+            }
+        }
+
+        // Media type
+        VerticalLayout {
+            spacing: 4px;
+            Text { text: "Media Type"; font-size: 12px; color: Theme.text-secondary; }
+            ComboBox {
+                model: root.media-types;
+                current-value: root.lcd.media-type;
+                selected(val) => { root.update-field(root.index, "media_type", val); }
+            }
+        }
+
+        // File path (image/video/gif)
+        if root.lcd.media-type == "Image" || root.lcd.media-type == "Video" || root.lcd.media-type == "GIF": VerticalLayout {
+            spacing: 4px;
+            Text { text: "File Path"; font-size: 12px; color: Theme.text-secondary; }
+            HorizontalLayout {
+                spacing: 8px;
+                LineEdit {
+                    horizontal-stretch: 1;
+                    text: root.lcd.path;
+                    placeholder-text: "/path/to/media";
+                    edited(val) => { root.update-field(root.index, "path", val); }
+                }
+                Button {
+                    text: "Browse";
+                    clicked => { root.pick-file(root.index); }
+                }
+            }
+        }
+
+        // Color (solid color mode)
+        if root.lcd.media-type == "Solid Color": HorizontalLayout {
+            spacing: 8px;
+            VerticalLayout {
+                spacing: 4px;
+                Text { text: "R"; font-size: 12px; color: Theme.text-secondary; }
+                SpinBox { value: root.lcd.rgb-r; minimum: 0; maximum: 255; edited(val) => { root.update-field(root.index, "rgb_r", "\{val}"); } }
+            }
+            VerticalLayout {
+                spacing: 4px;
+                Text { text: "G"; font-size: 12px; color: Theme.text-secondary; }
+                SpinBox { value: root.lcd.rgb-g; minimum: 0; maximum: 255; edited(val) => { root.update-field(root.index, "rgb_g", "\{val}"); } }
+            }
+            VerticalLayout {
+                spacing: 4px;
+                Text { text: "B"; font-size: 12px; color: Theme.text-secondary; }
+                SpinBox { value: root.lcd.rgb-b; minimum: 0; maximum: 255; edited(val) => { root.update-field(root.index, "rgb_b", "\{val}"); } }
+            }
+            Rectangle {
+                width: 32px;
+                height: 32px;
+                border-radius: 4px;
+                y: 16px;
+                background: Colors.rgb(root.lcd.rgb-r, root.lcd.rgb-g, root.lcd.rgb-b);
+                border-width: 1px;
+                border-color: Theme.border;
+            }
+        }
+
+        // Sensor configuration
+        if root.lcd.media-type == "Sensor Gauge": VerticalLayout {
+            spacing: 8px;
+            padding: 12px;
+
+            Text {
+                text: "Sensor Configuration";
+                font-size: 13px;
+                font-weight: 600;
+                color: Theme.text-secondary;
+            }
+
+            // Label / Unit / Decimals
+            HorizontalLayout {
+                spacing: 8px;
+                VerticalLayout {
+                    spacing: 4px;
+                    horizontal-stretch: 1;
+                    Text { text: "Label"; font-size: 11px; color: Theme.text-secondary; }
+                    LineEdit {
+                        text: root.lcd.sensor-label;
+                        edited(val) => { root.update-field(root.index, "sensor_label", val); }
+                    }
+                }
+                VerticalLayout {
+                    spacing: 4px;
+                    Text { text: "Unit"; font-size: 11px; color: Theme.text-secondary; }
+                    LineEdit {
+                        text: root.lcd.sensor-unit;
+                        edited(val) => { root.update-field(root.index, "sensor_unit", val); }
+                    }
+                }
+                VerticalLayout {
+                    spacing: 4px;
+                    Text { text: "Decimals"; font-size: 11px; color: Theme.text-secondary; }
+                    SpinBox {
+                        value: root.lcd.sensor-decimal-places;
+                        minimum: 0;
+                        maximum: 3;
+                        edited(val) => { root.update-field(root.index, "sensor_decimal_places", "\{val}"); }
+                    }
+                }
+            }
+
+            // Sensor source
+            VerticalLayout {
+                spacing: 4px;
+                Text { text: "Sensor Source"; font-size: 11px; color: Theme.text-secondary; }
+                ComboBox {
+                    model: root.sensor-options;
+                    current-index: root.lcd.sg_sensor-index;
+                    selected(val) => { root.update-field(root.index, "sensor_source", val); }
+                }
+            }
+
+            if root.lcd.sg_sensor-index == (root.sensor-options.length - 1): VerticalLayout {
+                spacing: 4px;
+                Text { text: "Command"; font-size: 11px; color: Theme.text-secondary; }
+                LineEdit {
+                    text: root.lcd.sensor-command;
+                    placeholder-text: "sensors | awk ...";
+                    edited(val) => { root.update-field(root.index, "sensor_command", val); }
+                }
+            }
+
+            VerticalLayout {
+                spacing: 4px;
+                Text { text: "Font"; font-size: 11px; color: Theme.text-secondary; }
+                changed-name := Rectangle {
+                    property <string> name: root.lcd.sensor-font-name;
+                    changed name => { font-combo.current-value = self.name; }
+                    font-combo := ComboBox {
+                        width: parent.width;
+                        model: root.font-options;
+                        current-value: root.lcd.sensor-font-name;
+                        selected(val) => { root.update-field(root.index, "sensor_font_name", val); }
+                    }
+                }
+            }
+
+            // Background image
+            VerticalLayout {
+                spacing: 4px;
+                Text { text: "Background image"; font-size: 12px; color: Theme.text-secondary; }
+                HorizontalLayout {
+                    spacing: 8px;
+                    LineEdit {
+                        horizontal-stretch: 1;
+                        text: root.lcd.path;
+                        placeholder-text: "/path/to/background image";
+                        edited(val) => { root.update-field(root.index, "path", val); }
+                    }
+                    Button {
+                        text: "Browse";
+                        clicked => { root.pick-file(root.index); }
+                    }
+                }
+            }
+
+            // Font sizes
+            HorizontalLayout {
+                spacing: 8px;
+                VerticalLayout {
+                    spacing: 4px;
+                    Text { text: "Value Size"; font-size: 11px; color: Theme.text-secondary; }
+                    SpinBox { value: root.lcd.sensor-value-font-size; minimum: 1; maximum: 999; edited(val) => { root.update-field(root.index, "sensor_value_font_size", "\{val}"); } }
+                }
+                VerticalLayout {
+                    spacing: 4px;
+                    Text { text: "Unit Size"; font-size: 11px; color: Theme.text-secondary; }
+                    SpinBox { value: root.lcd.sensor-unit-font-size; minimum: 1; maximum: 999; edited(val) => { root.update-field(root.index, "sensor_unit_font_size", "\{val}"); } }
+                }
+                VerticalLayout {
+                    spacing: 4px;
+                    Text { text: "Label Size"; font-size: 11px; color: Theme.text-secondary; }
+                    SpinBox { value: root.lcd.sensor-label-font-size; minimum: 1; maximum: 999; edited(val) => { root.update-field(root.index, "sensor_label_font_size", "\{val}"); } }
+                }
+            }
+
+            // Gauge geometry
+            Text {
+                text: "Gauge Geometry";
+                font-size: 11px;
+                font-weight: 600;
+                color: Theme.text-secondary;
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                VerticalLayout {
+                    spacing: 4px;
+                    Text { text: "Start Angle"; font-size: 11px; color: Theme.text-secondary; }
+                    SpinBox { value: root.lcd.sensor-start-angle; minimum: 0; maximum: 360; edited(val) => { root.update-field(root.index, "sensor_start_angle", "\{val}"); } }
+                }
+                VerticalLayout {
+                    spacing: 4px;
+                    Text { text: "Sweep Angle"; font-size: 11px; color: Theme.text-secondary; }
+                    SpinBox { value: root.lcd.sensor-sweep-angle; minimum: 1; maximum: 360; edited(val) => { root.update-field(root.index, "sensor_sweep_angle", "\{val}"); } }
+                }
+                VerticalLayout {
+                    spacing: 4px;
+                    Text { text: "Radius"; font-size: 11px; color: Theme.text-secondary; }
+                    SpinBox { value: root.lcd.sensor-outer-radius; minimum: 10; maximum: 500; edited(val) => { root.update-field(root.index, "sensor_outer_radius", "\{val}"); } }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                VerticalLayout {
+                    spacing: 4px;
+                    Text { text: "Thickness"; font-size: 11px; color: Theme.text-secondary; }
+                    SpinBox { value: root.lcd.sensor-thickness; minimum: 1; maximum: 200; edited(val) => { root.update-field(root.index, "sensor_thickness", "\{val}"); } }
+                }
+                VerticalLayout {
+                    spacing: 4px;
+                    Text { text: "Corner R"; font-size: 11px; color: Theme.text-secondary; }
+                    SpinBox { value: root.lcd.sensor-corner-radius; minimum: 0; maximum: 100; edited(val) => { root.update-field(root.index, "sensor_corner_radius", "\{val}"); } }
+                }
+            }
+
+            // Text offsets
+            Text {
+                text: "Text Offsets";
+                font-size: 11px;
+                font-weight: 600;
+                color: Theme.text-secondary;
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                VerticalLayout {
+                    spacing: 4px;
+                    Text { text: "Value Offset"; font-size: 11px; color: Theme.text-secondary; }
+                    SpinBox { value: root.lcd.sensor-value-offset; minimum: -500; maximum: 500; edited(val) => { root.update-field(root.index, "sensor_value_offset", "\{val}"); } }
+                }
+                VerticalLayout {
+                    spacing: 4px;
+                    Text { text: "Unit Offset"; font-size: 11px; color: Theme.text-secondary; }
+                    SpinBox { value: root.lcd.sensor-unit-offset; minimum: -500; maximum: 500; edited(val) => { root.update-field(root.index, "sensor_unit_offset", "\{val}"); } }
+                }
+                VerticalLayout {
+                    spacing: 4px;
+                    Text { text: "Label Offset"; font-size: 11px; color: Theme.text-secondary; }
+                    SpinBox { value: root.lcd.sensor-label-offset; minimum: -500; maximum: 500; edited(val) => { root.update-field(root.index, "sensor_label_offset", "\{val}"); } }
+                }
+            }
+
+            // Sensor colors
+            Text {
+                text: "Colors";
+                font-size: 11px;
+                font-weight: 600;
+                color: Theme.text-secondary;
+            }
+
+            HorizontalLayout {
+                spacing: 16px;
+                VerticalLayout {
+                    spacing: 4px;
+                    Text { text: "Text Color"; font-size: 11px; color: Theme.text-secondary; }
+                    HorizontalLayout {
+                        spacing: 4px;
+                        SpinBox { value: root.lcd.sensor-text-color-r; minimum: 0; maximum: 255; edited(val) => { root.update-field(root.index, "sensor_text_color_r", "\{val}"); } }
+                        SpinBox { value: root.lcd.sensor-text-color-g; minimum: 0; maximum: 255; edited(val) => { root.update-field(root.index, "sensor_text_color_g", "\{val}"); } }
+                        SpinBox { value: root.lcd.sensor-text-color-b; minimum: 0; maximum: 255; edited(val) => { root.update-field(root.index, "sensor_text_color_b", "\{val}"); } }
+                        Rectangle {
+                            width: 24px; height: 24px; border-radius: 4px;
+                            background: Colors.rgb(root.lcd.sensor-text-color-r, root.lcd.sensor-text-color-g, root.lcd.sensor-text-color-b);
+                            border-width: 1px; border-color: Theme.border;
+                        }
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 16px;
+                VerticalLayout {
+                    spacing: 4px;
+                    Text { text: "Background"; font-size: 11px; color: Theme.text-secondary; }
+                    HorizontalLayout {
+                        spacing: 4px;
+                        SpinBox { value: root.lcd.sensor-bg-color-r; minimum: 0; maximum: 255; edited(val) => { root.update-field(root.index, "sensor_bg_color_r", "\{val}"); } }
+                        SpinBox { value: root.lcd.sensor-bg-color-g; minimum: 0; maximum: 255; edited(val) => { root.update-field(root.index, "sensor_bg_color_g", "\{val}"); } }
+                        SpinBox { value: root.lcd.sensor-bg-color-b; minimum: 0; maximum: 255; edited(val) => { root.update-field(root.index, "sensor_bg_color_b", "\{val}"); } }
+                        Rectangle {
+                            width: 24px; height: 24px; border-radius: 4px;
+                            background: Colors.rgb(root.lcd.sensor-bg-color-r, root.lcd.sensor-bg-color-g, root.lcd.sensor-bg-color-b);
+                            border-width: 1px; border-color: Theme.border;
+                        }
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 16px;
+                VerticalLayout {
+                    spacing: 4px;
+                    Text { text: "Gauge Background"; font-size: 11px; color: Theme.text-secondary; }
+                    HorizontalLayout {
+                        spacing: 4px;
+                        SpinBox { value: root.lcd.sensor-gauge-bg-r; minimum: 0; maximum: 255; edited(val) => { root.update-field(root.index, "sensor_gauge_bg_r", "\{val}"); } }
+                        SpinBox { value: root.lcd.sensor-gauge-bg-g; minimum: 0; maximum: 255; edited(val) => { root.update-field(root.index, "sensor_gauge_bg_g", "\{val}"); } }
+                        SpinBox { value: root.lcd.sensor-gauge-bg-b; minimum: 0; maximum: 255; edited(val) => { root.update-field(root.index, "sensor_gauge_bg_b", "\{val}"); } }
+                        Rectangle {
+                            width: 24px; height: 24px; border-radius: 4px;
+                            background: Colors.rgb(root.lcd.sensor-gauge-bg-r, root.lcd.sensor-gauge-bg-g, root.lcd.sensor-gauge-bg-b);
+                            border-width: 1px; border-color: Theme.border;
+                        }
+                    }
+                }
+            }
+
+            // Gauge ranges
+            Text {
+                text: "Gauge Ranges";
+                font-size: 11px;
+                font-weight: 600;
+                color: Theme.text-secondary;
+            }
+
+            for range-data[ridx] in root.lcd.sensor-gauge-ranges: HorizontalLayout {
+                spacing: 4px;
+                Text { text: "Max %:"; font-size: 11px; color: Theme.text-secondary; vertical-alignment: center; }
+                SpinBox {
+                    value: range-data.max-value;
+                    minimum: 0; maximum: 100;
+                    edited(val) => { root.update-field(root.index, "gauge_range_max_\{ridx}", "\{val}"); }
+                }
+                SpinBox { value: range-data.r; minimum: 0; maximum: 255; edited(val) => { root.update-field(root.index, "gauge_range_r_\{ridx}", "\{val}"); } }
+                SpinBox { value: range-data.g; minimum: 0; maximum: 255; edited(val) => { root.update-field(root.index, "gauge_range_g_\{ridx}", "\{val}"); } }
+                SpinBox { value: range-data.b; minimum: 0; maximum: 255; edited(val) => { root.update-field(root.index, "gauge_range_b_\{ridx}", "\{val}"); } }
+                Rectangle {
+                    width: 24px; height: 24px; border-radius: 4px;
+                    background: Colors.rgb(range-data.r, range-data.g, range-data.b);
+                    border-width: 1px; border-color: Theme.border;
+                }
+                Button {
+                    text: "X";
+                    clicked => { root.update-field(root.index, "gauge_range_remove", "\{ridx}"); }
+                }
+            }
+
+            HorizontalLayout {
+                alignment: start;
+                Button {
+                    text: "+ Add Range";
+                    clicked => { root.update-field(root.index, "gauge_range_add", ""); }
+                }
+            }
+        }
+
+        // Custom template picker — only visible for the Custom media type.
+        // Templates are shared across LCDs; edits to a built-in trigger a
+        // "Duplicate to edit" flow (wired in Commit 4 alongside the editor).
+        if root.lcd.media-type == "Custom": VerticalLayout {
+            spacing: 8px;
+            Text { text: "Template"; font-size: 12px; color: Theme.text-secondary; }
+            HorizontalLayout {
+                spacing: 8px;
+                vertical-stretch: 0;
+                Rectangle {
+                    width: 96px;
+                    height: 96px;
+                    background: #1a1a1a;
+                    border-radius: 6px;
+                    border-width: 1px;
+                    border-color: Theme.border;
+                    clip: true;
+                    Image {
+                        source: root.lcd.template-preview;
+                        width: parent.width;
+                        height: parent.height;
+                        image-fit: contain;
+                    }
+                }
+                VerticalLayout {
+                    spacing: 8px;
+                    horizontal-stretch: 1;
+                    ComboBox {
+                        model: root.template-labels;
+                        current-value: root.lcd.template-name;
+                        // Rust side resolves the pretty label back to the id via
+                        // the `template-labels` / `template-ids` parallel arrays.
+                        selected(val) => {
+                            root.update-field(root.index, "template_label", val);
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Button {
+                            text: "New";
+                            clicked => { root.create-template(root.index); }
+                        }
+                        Button {
+                            text: "Edit";
+                            clicked => { root.edit-template(root.index); }
+                        }
+                        Button {
+                            text: "Duplicate";
+                            clicked => { root.duplicate-template(root.index); }
+                        }
+                        Button {
+                            text: "Delete";
+                            clicked => { root.delete-template(root.index); }
+                        }
+                        Button {
+                            text: "Browse Online";
+                            clicked => { root.browse-templates(); }
+                        }
+                    }
+                }
+            }
+        }
+
+        // FPS and Orientation
+        HorizontalLayout {
+            spacing: 16px;
+
+            if root.lcd.media-type == "Video" || root.lcd.media-type == "GIF": VerticalLayout {
+                spacing: 4px;
+                Text { text: "FPS"; font-size: 12px; color: Theme.text-secondary; }
+                SpinBox {
+                    value: root.lcd.fps;
+                    minimum: 1;
+                    maximum: 60;
+                    edited(val) => { root.update-field(root.index, "fps", "\{val}"); }
+                }
+            }
+
+            if root.lcd.media-type == "Sensor Gauge": VerticalLayout {
+                spacing: 4px;
+                Text { text: "Update (ms)"; font-size: 12px; color: Theme.text-secondary; }
+                SpinBox {
+                    value: root.lcd.update-interval-ms;
+                    minimum: 100;
+                    maximum: 10000;
+                    edited(val) => { root.update-field(root.index, "update_interval_ms", "\{val}"); }
+                }
+            }
+
+            VerticalLayout {
+                spacing: 4px;
+                Text { text: "Orientation"; font-size: 12px; color: Theme.text-secondary; }
+                HorizontalLayout {
+                    spacing: 4px;
+                    OrientationButton {
+                        degrees: 0;
+                        active: root.lcd.orientation == 0;
+                        clicked => { root.update-field(root.index, "orientation", "0"); }
+                    }
+                    OrientationButton {
+                        degrees: 90;
+                        active: root.lcd.orientation == 90;
+                        clicked => { root.update-field(root.index, "orientation", "90"); }
+                    }
+                    OrientationButton {
+                        degrees: 180;
+                        active: root.lcd.orientation == 180;
+                        clicked => { root.update-field(root.index, "orientation", "180"); }
+                    }
+                    OrientationButton {
+                        degrees: 270;
+                        active: root.lcd.orientation == 270;
+                        clicked => { root.update-field(root.index, "orientation", "270"); }
+                    }
+                }
+            }
+        }
+
+        if root.lcd.media-type == "Custom": HorizontalLayout {
+            spacing: 8px;
+            CheckBox {
+                text: "Smooth edges (uses more CPU)";
+                checked: root.lcd.smooth-edges;
+                toggled => {
+                    root.update-field(root.index, "smooth_edges", self.checked ? "true" : "false");
+                }
+            }
+        }
+
+        if root.lcd.media-type == "Custom" && root.lcd.device-supports-h264: HorizontalLayout {
+            spacing: 8px;
+            CheckBox {
+                text: "Stream as H264 (uses less CPU)";
+                checked: root.lcd.custom-h264;
+                toggled => {
+                    root.update-field(root.index, "custom_h264", self.checked ? "true" : "false");
+                }
+            }
+        }
+
+        if root.lcd.supports-c-command: HorizontalLayout {
+            spacing: 8px;
+            CheckBox {
+                text: "Use 512-byte HID frame mode";
+                checked: root.lcd.aio-512-frame;
+                toggled => {
+                    root.update-field(root.index, "aio_512_frame", self.checked ? "true" : "false");
+                }
+            }
+        }
+    }
+}
+
+export component LcdPage inherits VerticalLayout {
+    in property <[LcdEntryData]> lcd-entries: [];
+    in property <[string]> device-options: [];
+    in property <[string]> sensor-options: [];
+    in property <[string]> font-options: [];
+    in property <[string]> template-labels: [];
+    in property <bool> has-config: false;
+
+    callback add-lcd();
+    callback remove-lcd(int);
+    callback update-lcd-field(int, string, string);
+    callback pick-lcd-file(int);
+    callback save-config();
+    callback create-template(int);
+    callback edit-template(int);
+    callback duplicate-template(int);
+    callback delete-template(int);
+    callback browse-templates();
+
+    PageHeader {
+        title: "LCD";
+
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+            vertical-stretch: 0;
+
+            Button {
+                text: "+ Add LCD";
+                clicked => { root.add-lcd(); }
+            }
+            Button {
+                text: "Save";
+                clicked => { root.save-config(); }
+            }
+        }
+    }
+
+    ScrollView {
+        VerticalLayout {
+            padding: 24px;
+            spacing: 12px;
+            alignment: start;
+
+            if !root.has-config: Text {
+                text: "No config loaded. Is the daemon running?";
+                font-size: 14px;
+                color: Theme.text-secondary;
+            }
+
+            if root.has-config && root.lcd-entries.length == 0: VerticalLayout {
+                spacing: 12px;
+                padding-top: 48px;
+                alignment: center;
+                Text {
+                    text: "No LCD entries configured.";
+                    font-size: 14px;
+                    color: Theme.text-secondary;
+                    horizontal-alignment: center;
+                }
+                HorizontalLayout {
+                    alignment: center;
+                    Button {
+                        text: "Add LCD Device";
+                        clicked => { root.add-lcd(); }
+                    }
+                }
+            }
+
+            for lcd-entry[idx] in root.lcd-entries: LcdConfigCard {
+                index: idx;
+                lcd: lcd-entry;
+                device-options: root.device-options;
+                sensor-options: root.sensor-options;
+                font-options: root.font-options;
+                template-labels: root.template-labels;
+                remove(i) => { root.remove-lcd(i); }
+                update-field(i, field, val) => { root.update-lcd-field(i, field, val); }
+                pick-file(i) => { root.pick-lcd-file(i); }
+                create-template(i) => { root.create-template(i); }
+                edit-template(i) => { root.edit-template(i); }
+                duplicate-template(i) => { root.duplicate-template(i); }
+                delete-template(i) => { root.delete-template(i); }
+                browse-templates => { root.browse-templates(); }
+            }
+        }
+    }
+}

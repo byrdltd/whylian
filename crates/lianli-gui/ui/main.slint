@@ -1,0 +1,289 @@
+import { Theme } from "theme.slint";
+import { Sidebar } from "sidebar.slint";
+import { DevicesPage, DeviceData } from "pages/devices.slint";
+import { FansPage, FanCurveData, FanGroupData, FanSpeedSlot, CurvePoint, CurveSegment } from "pages/fans.slint";
+import { LcdPage, LcdEntryData, LcdDeviceOption, GaugeRangeData } from "pages/lcd.slint";
+import { RgbPage, RgbDeviceData, RgbZoneData, RgbColorData } from "pages/rgb.slint";
+import { AioPage, AioData } from "pages/aio.slint";
+import { SettingsPage } from "pages/settings.slint";
+import { TemplateEditorWindow, EditorWidget } from "windows/template_editor.slint";
+import { TemplateBrowserWindow, CatalogEntry } from "windows/template_browser.slint";
+export { TemplateEditorWindow, EditorWidget }
+export { TemplateBrowserWindow, CatalogEntry }
+
+export { DeviceData, FanCurveData, FanGroupData, FanSpeedSlot, CurvePoint, CurveSegment }
+export { LcdEntryData, LcdDeviceOption, GaugeRangeData }
+export { RgbDeviceData, RgbZoneData, RgbColorData }
+export { AioData }
+
+export component MainWindow inherits Window {
+    title: "Lian Li Linux";
+    preferred-width: 960px;
+    preferred-height: 640px;
+    min-width: 800px;
+    min-height: 500px;
+    icon: @image-url("../../../assets/icons/icon.png");
+
+    // State properties bound from Rust
+    in-out property <int> current-page: 0;
+    in property <bool> daemon-connected: false;
+    in property <bool> config-dirty: false;
+    in property <int> device-count: 0;
+    in property <bool> streaming-active: false;
+    in property <string> socket-path: "";
+    in property <[DeviceData]> devices: [];
+
+    // Settings properties
+    in property <int> lcd-count: 0;
+    in property <int> fan-curve-count: 0;
+    in property <int> default-fps: 30;
+    in property <bool> openrgb-enabled: false;
+    in property <bool> openrgb-running: false;
+    in property <int> openrgb-port: 6743;
+    in property <string> openrgb-error: "";
+    in property <string> hid-driver: "HIDAPI";
+    in property <string> app-version: "";
+
+    // LCD properties
+    in property <[LcdEntryData]> lcd-entries: [];
+    in property <[string]> lcd-device-options: [];
+    in property <[string]> lcd-sensor-options: [];
+    in property <[string]> lcd-font-options: [];
+    in property <[string]> lcd-template-labels: [];
+    in property <bool> has-config: false;
+
+    // RGB properties
+    in property <[RgbDeviceData]> rgb-devices: [];
+
+    // Fan properties
+    in property <[FanCurveData]> fan-curves: [];
+    in property <[FanGroupData]> fan-groups: [];
+    in property <[string]> curve-names: [];
+    in property <[string]> fan-speed-options: [];
+    in property <[string]> fan-sensor-options: [];
+    in property <[string]> fan-pwm-header-options: [];
+    in property <int> fan-update-interval: 1000;
+    in property <float> fan-hysteresis-temp: 1.0;
+    in property <int> fan-hysteresis-pwm: 5;
+
+    // Callbacks for Rust backend
+    callback refresh-devices();
+    callback switch-display-mode(string);
+    callback bind-wireless-device(string);
+    callback unbind-wireless-device(string);
+    callback set-fan-quantity(string, int);
+    callback save-config();
+    callback toggle-openrgb(bool);
+    callback set-default-fps(int);
+    callback set-openrgb-port(int);
+    callback set-hid-driver(string);
+
+    // LCD callbacks
+    callback add-lcd();
+    callback remove-lcd(int);
+    callback update-lcd-field(int, string, string);
+    callback pick-lcd-file(int);
+    callback lcd-create-template(int);
+    callback lcd-edit-template(int);
+    callback lcd-duplicate-template(int);
+    callback lcd-delete-template(int);
+    callback lcd-browse-templates();
+
+    // RGB callbacks
+    callback rgb-set-mode(string, int, string);
+    callback rgb-set-speed(string, int, int);
+    callback rgb-set-brightness(string, int, int);
+    callback rgb-set-direction(string, int, string);
+    callback rgb-set-scope(string, int, string);
+    callback rgb-set-color(string, int, int, int, int, int);
+    callback rgb-toggle-mb-sync(string, bool);
+    callback rgb-apply-to-all(string);
+    callback rgb-toggle-swap-lr(string, int);
+    callback rgb-toggle-swap-tb(string, int);
+    callback rgb-add-color(string, int);
+    callback rgb-remove-color(string, int, int);
+    callback rgb-set-led-color(string, int, int, int, int, int);
+    callback rgb-fill-zone(string, int, int, int, int);
+    callback rgb-clear-zone(string, int);
+    callback rgb-save-preset(string, string);
+    callback rgb-apply-preset(string, string);
+    callback rgb-delete-preset(string, string);
+
+    // AIO properties
+    in property <[AioData]> aios: [];
+    in property <[string]> aio-sensor-options: [];
+    in property <[string]> aio-speed-options: [];
+    in property <[string]> aio-theme-options: [];
+    in property <[string]> aio-rotation-options: [];
+
+    // AIO callbacks
+    callback aio-set-pump-speed-mode(string, string);
+    callback aio-set-pump-pwm(string, int);
+    callback aio-set-fan-speed-mode(string, int, string);
+    callback aio-set-fan-pwm(string, int, int);
+    callback aio-set-sensor(string, string, int);
+    callback aio-set-color(string, string, int, int, int, int);
+    callback aio-set-brightness(string, int);
+    callback aio-set-rotation(string, int);
+    callback aio-set-theme-index(string, int);
+    callback aio-set-loop-interval(string, int);
+
+    // Fan callbacks
+    callback fan-add-curve();
+    callback fan-remove-curve(int);
+    callback fan-rename-curve(int, string);
+    callback fan-set-temp-source(int, string);
+    callback fan-set-temp-command(int, string);
+    callback fan-point-moved(int, int, float, float);
+    callback fan-point-added(int, float, float);
+    callback fan-point-removed(int, int);
+    callback fan-set-slot-speed(string, int, string);
+    callback fan-set-slot-pwm(string, int, int);
+    callback fan-set-pwm-header(string, int, string);
+    callback fan-set-update-interval(int);
+    callback fan-set-hysteresis-temp(float);
+    callback fan-set-hysteresis-pwm(int);
+
+    HorizontalLayout {
+        Sidebar {
+            current-page <=> root.current-page;
+            daemon-connected: root.daemon-connected;
+            device-count: root.device-count;
+            config-dirty: root.config-dirty;
+        }
+
+        // Separator
+        Rectangle {
+            width: 1px;
+            background: Theme.border;
+        }
+
+        // Page content
+        Rectangle {
+            horizontal-stretch: 1;
+
+            if root.current-page == 0: DevicesPage {
+                devices: root.devices;
+                refresh => { root.refresh-devices(); }
+                switch-display-mode(id) => { root.switch-display-mode(id); }
+                bind-wireless-device(id) => { root.bind-wireless-device(id); }
+                unbind-wireless-device(id) => { root.unbind-wireless-device(id); }
+                set-fan-quantity(id, qty) => { root.set-fan-quantity(id, qty); }
+            }
+
+            if root.current-page == 1: LcdPage {
+                lcd-entries: root.lcd-entries;
+                device-options: root.lcd-device-options;
+                sensor-options: root.lcd-sensor-options;
+                font-options: root.lcd-font-options;
+                template-labels: root.lcd-template-labels;
+                has-config: root.has-config;
+                add-lcd => { root.add-lcd(); }
+                remove-lcd(idx) => { root.remove-lcd(idx); }
+                update-lcd-field(idx, field, val) => { root.update-lcd-field(idx, field, val); }
+                pick-lcd-file(idx) => { root.pick-lcd-file(idx); }
+                save-config => { root.save-config(); }
+                create-template(idx) => { root.lcd-create-template(idx); }
+                edit-template(idx) => { root.lcd-edit-template(idx); }
+                duplicate-template(idx) => { root.lcd-duplicate-template(idx); }
+                delete-template(idx) => { root.lcd-delete-template(idx); }
+                browse-templates => { root.lcd-browse-templates(); }
+            }
+
+            if root.current-page == 2: FansPage {
+                fan-curves: root.fan-curves;
+                fan-groups: root.fan-groups;
+                curve-names: root.curve-names;
+                speed-options: root.fan-speed-options;
+                sensor-options: root.fan-sensor-options;
+                pwm-header-options: root.fan-pwm-header-options;
+                update-interval: root.fan-update-interval;
+                hysteresis-temp: root.fan-hysteresis-temp;
+                hysteresis-pwm: root.fan-hysteresis-pwm;
+                has-config: root.has-config;
+                add-curve => { root.fan-add-curve(); }
+                remove-curve(idx) => { root.fan-remove-curve(idx); }
+                rename-curve(idx, name) => { root.fan-rename-curve(idx, name); }
+                set-temp-source(idx, val) => { root.fan-set-temp-source(idx, val); }
+                set-temp-command(idx, cmd) => { root.fan-set-temp-command(idx, cmd); }
+                point-moved(cidx, pidx, temp, speed) => { root.fan-point-moved(cidx, pidx, temp, speed); }
+                point-added(cidx, temp, speed) => { root.fan-point-added(cidx, temp, speed); }
+                point-removed(cidx, pidx) => { root.fan-point-removed(cidx, pidx); }
+                set-slot-speed(dev-id, slot, val) => { root.fan-set-slot-speed(dev-id, slot, val); }
+                set-slot-pwm(dev-id, slot, pct) => { root.fan-set-slot-pwm(dev-id, slot, pct); }
+                set-pwm-header(dev-id, slot, val) => { root.fan-set-pwm-header(dev-id, slot, val); }
+                set-update-interval(ms) => { root.fan-set-update-interval(ms); }
+                set-hysteresis-temp(v) => { root.fan-set-hysteresis-temp(v); }
+                set-hysteresis-pwm(v) => { root.fan-set-hysteresis-pwm(v); }
+                save-config => { root.save-config(); }
+            }
+
+            if root.current-page == 3: RgbPage {
+                rgb-devices: root.rgb-devices;
+                openrgb-enabled: root.openrgb-enabled;
+                openrgb-running: root.openrgb-running;
+                openrgb-port: root.openrgb-port;
+                openrgb-error: root.openrgb-error;
+                set-mode(dev-id, zone, mode) => { root.rgb-set-mode(dev-id, zone, mode); }
+                set-speed(dev-id, zone, speed) => { root.rgb-set-speed(dev-id, zone, speed); }
+                set-brightness(dev-id, zone, bright) => { root.rgb-set-brightness(dev-id, zone, bright); }
+                set-direction(dev-id, zone, dir) => { root.rgb-set-direction(dev-id, zone, dir); }
+                set-scope(dev-id, zone, scope) => { root.rgb-set-scope(dev-id, zone, scope); }
+                set-color(dev-id, zone, cidx, r, g, b) => { root.rgb-set-color(dev-id, zone, cidx, r, g, b); }
+                toggle-mb-sync(dev-id, enabled) => { root.rgb-toggle-mb-sync(dev-id, enabled); }
+                apply-to-all(dev-id) => { root.rgb-apply-to-all(dev-id); }
+                toggle-swap-lr(dev-id, zone) => { root.rgb-toggle-swap-lr(dev-id, zone); }
+                toggle-swap-tb(dev-id, zone) => { root.rgb-toggle-swap-tb(dev-id, zone); }
+                add-color(dev-id, zone) => { root.rgb-add-color(dev-id, zone); }
+                remove-color(dev-id, zone, cidx) => { root.rgb-remove-color(dev-id, zone, cidx); }
+                set-led-color(dev-id, zone, idx, r, g, b) => { root.rgb-set-led-color(dev-id, zone, idx, r, g, b); }
+                fill-zone(dev-id, zone, r, g, b) => { root.rgb-fill-zone(dev-id, zone, r, g, b); }
+                clear-zone(dev-id, zone) => { root.rgb-clear-zone(dev-id, zone); }
+                save-preset(dev-id, name) => { root.rgb-save-preset(dev-id, name); }
+                apply-preset(dev-id, name) => { root.rgb-apply-preset(dev-id, name); }
+                delete-preset(dev-id, name) => { root.rgb-delete-preset(dev-id, name); }
+                toggle-openrgb(enabled) => { root.toggle-openrgb(enabled); }
+                save-config => { root.save-config(); }
+            }
+
+            if root.current-page == 4: AioPage {
+                aios: root.aios;
+                sensor-options: root.aio-sensor-options;
+                speed-options: root.aio-speed-options;
+                theme-options: root.aio-theme-options;
+                rotation-options: root.aio-rotation-options;
+                set-pump-speed-mode(id, v) => { root.aio-set-pump-speed-mode(id, v); }
+                set-pump-pwm(id, v) => { root.aio-set-pump-pwm(id, v); }
+                set-fan-speed-mode(id, s, v) => { root.aio-set-fan-speed-mode(id, s, v); }
+                set-fan-pwm(id, s, v) => { root.aio-set-fan-pwm(id, s, v); }
+                set-sensor(id, w, i) => { root.aio-set-sensor(id, w, i); }
+                set-color(id, w, r, g, b, a) => { root.aio-set-color(id, w, r, g, b, a); }
+                set-brightness(id, v) => { root.aio-set-brightness(id, v); }
+                set-rotation(id, v) => { root.aio-set-rotation(id, v); }
+                set-theme-index(id, v) => { root.aio-set-theme-index(id, v); }
+                set-loop-interval(id, v) => { root.aio-set-loop-interval(id, v); }
+                save-config => { root.save-config(); }
+            }
+
+            if root.current-page == 5: SettingsPage {
+                daemon-connected: root.daemon-connected;
+                socket-path: root.socket-path;
+                streaming-active: root.streaming-active;
+                lcd-count: root.lcd-count;
+                fan-curve-count: root.fan-curve-count;
+                default-fps: root.default-fps;
+                openrgb-enabled: root.openrgb-enabled;
+                openrgb-running: root.openrgb-running;
+                openrgb-port: root.openrgb-port;
+                openrgb-error: root.openrgb-error;
+                hid-driver: root.hid-driver;
+                app-version: root.app-version;
+                toggle-openrgb(enabled) => { root.toggle-openrgb(enabled); }
+                set-default-fps(fps) => { root.set-default-fps(fps); }
+                set-openrgb-port(port) => { root.set-openrgb-port(port); }
+                set-hid-driver(driver) => { root.set-hid-driver(driver); }
+                save-config => { root.save-config(); }
+            }
+        }
+    }
+}

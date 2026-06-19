@@ -1,0 +1,209 @@
+import { Theme } from "../theme.slint";
+import { Badge } from "../widgets.slint";
+import { PageHeader } from "../page_header.slint";
+import { Button, ScrollView, SpinBox } from "std-widgets.slint";
+
+export struct DeviceData {
+    device-id: string,
+    family-name: string,
+    name: string,
+    serial: string,
+    has-lcd: bool,
+    has-fan: bool,
+    has-pump: bool,
+    has-rgb: bool,
+    fan-rpms: string,
+    coolant-temp: string,
+    resolution: string,
+    in-desktop-mode: bool,
+    in-lcd-mode: bool,
+    is-unbound-wireless: bool,
+    is-bound-wireless: bool,
+    pending-action: string,
+    fan-quantity: int,
+    max-fan-quantity: int,
+}
+
+component DeviceCard inherits Rectangle {
+    in property <DeviceData> device;
+    callback switch-display-mode(string);
+    callback bind-wireless-device(string);
+    callback unbind-wireless-device(string);
+    callback set-fan-quantity(string, int);
+
+    min-width: 280px;
+    min-height: 190px;
+    flex-grow: 1;
+    flex-align-self: stretch;
+    opacity: device.is-unbound-wireless ? 0.5 : 1.0;
+    background: Theme.card-background;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.border;
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 6px;
+
+        // Header
+        Text {
+            text: device.name;
+            font-size: 14px;
+            font-weight: 600;
+            color: Theme.text-primary;
+            overflow: elide;
+        }
+
+        Text {
+            text: device.family-name;
+            font-size: 11px;
+            color: Theme.text-secondary;
+        }
+
+        // Badges
+        HorizontalLayout {
+            spacing: 4px;
+            alignment: start;
+
+            if device.has-lcd: Badge { label: "LCD"; badge-color: Theme.badge-lcd; }
+            if device.has-fan: Badge { label: "Fan"; badge-color: Theme.badge-fan; }
+            if device.has-pump: Badge { label: "Pump"; badge-color: Theme.badge-pump; }
+            if device.has-rgb: Badge { label: "RGB"; badge-color: Theme.badge-rgb; }
+        }
+
+        // Details
+        if device.serial != "": Text {
+            text: "S/N: \{device.serial}";
+            font-size: 11px;
+            color: Theme.text-secondary;
+        }
+
+        if device.resolution != "": Text {
+            text: "Screen: \{device.resolution}";
+            font-size: 11px;
+            color: Theme.text-secondary;
+        }
+
+        // Live telemetry
+        if device.fan-rpms != "": Text {
+            text: "Fan RPM: \{device.fan-rpms}";
+            font-size: 11px;
+            color: Theme.text-primary;
+        }
+
+        if device.coolant-temp != "": Text {
+            text: "Coolant: \{device.coolant-temp}";
+            font-size: 11px;
+            color: Theme.text-primary;
+        }
+
+        Rectangle { vertical-stretch: 1; }
+
+        if device.max-fan-quantity > 0: HorizontalLayout {
+            spacing: 6px;
+            Text {
+                text: "Fans on this port:";
+                font-size: 12px;
+                color: Theme.text-secondary;
+                vertical-alignment: center;
+            }
+            SpinBox {
+                minimum: 0;
+                maximum: device.max-fan-quantity;
+                value: device.fan-quantity;
+                enabled: device.pending-action == "";
+                edited(val) => { root.set-fan-quantity(device.device-id, val); }
+            }
+        }
+
+        if device.in-desktop-mode: Button {
+            text: device.pending-action == "switch" ? "Switching…" : "Switch to LCD Mode";
+            enabled: device.pending-action == "";
+            clicked => { root.switch-display-mode(device.device-id); }
+        }
+
+        if device.in-lcd-mode: Button {
+            text: device.pending-action == "switch" ? "Switching…" : "Switch to Desktop Mode";
+            enabled: device.pending-action == "";
+            clicked => { root.switch-display-mode(device.device-id); }
+        }
+
+        if device.is-unbound-wireless: Button {
+            text: device.pending-action == "bind" ? "Binding…" : "Bind to this dongle";
+            enabled: device.pending-action == "";
+            clicked => { root.bind-wireless-device(device.device-id); }
+        }
+
+        if device.is-bound-wireless: Button {
+            text: device.pending-action == "unbind" ? "Unbinding…" : "Unbind";
+            enabled: device.pending-action == "";
+            clicked => { root.unbind-wireless-device(device.device-id); }
+        }
+    }
+}
+
+export component DevicesPage inherits VerticalLayout {
+    in property <[DeviceData]> devices: [];
+    callback refresh();
+    callback switch-display-mode(string);
+    callback bind-wireless-device(string);
+    callback unbind-wireless-device(string);
+    callback set-fan-quantity(string, int);
+
+    PageHeader {
+        title: "Devices";
+
+        HorizontalLayout {
+            alignment: end;
+            vertical-stretch: 0;
+
+            Button {
+                text: "Refresh";
+                clicked => { root.refresh(); }
+            }
+        }
+    }
+
+    scroll := ScrollView {
+        property <length> card-stride-x: 292px; // card min-width 280 + 12 gap
+        property <length> card-stride-y: 198px; // card min-height 190 + 8 gap
+        property <int> cards-per-row: Math.max(1, Math.floor((self.visible-width - 48px) / card-stride-x));
+        property <int> grid-rows: root.devices.length == 0
+            ? 0
+            : Math.ceil(root.devices.length / cards-per-row);
+
+        viewport-width: self.visible-width;
+        viewport-height: grid-rows == 0
+            ? self.visible-height
+            : grid-rows * card-stride-y + 48px;
+
+        VerticalLayout {
+            padding: 24px;
+            spacing: 16px;
+            alignment: start;
+
+            FlexboxLayout {
+                spacing-horizontal: 12px;
+                spacing-vertical: 8px;
+                align-items: stretch;
+                align-content: stretch;
+
+                for device[idx] in root.devices: DeviceCard {
+                    device: device;
+                    switch-display-mode(id) => { root.switch-display-mode(id); }
+                    bind-wireless-device(id) => { root.bind-wireless-device(id); }
+                    unbind-wireless-device(id) => { root.unbind-wireless-device(id); }
+                    set-fan-quantity(id, qty) => { root.set-fan-quantity(id, qty); }
+                }
+            }
+
+            if root.devices.length == 0: Text {
+                text: "No devices found. Is the daemon running?";
+                font-size: 14px;
+                color: Theme.text-secondary;
+                horizontal-alignment: center;
+            }
+
+        }
+    }
+}

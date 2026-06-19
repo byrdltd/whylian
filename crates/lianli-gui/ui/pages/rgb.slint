@@ -1,0 +1,616 @@
+import { Theme } from "../theme.slint";
+import { Card, StatusDot } from "../widgets.slint";
+import { PageHeader } from "../page_header.slint";
+import { ColorPicker } from "../components/color_picker.slint";
+import { Button, ScrollView, ComboBox, Slider, CheckBox, LineEdit } from "std-widgets.slint";
+
+export struct RgbColorData {
+    r: int,
+    g: int,
+    b: int,
+}
+
+export struct RgbZoneData {
+    zone-index: int,
+    zone-name: string,
+    led-count: int,
+    mode: string,
+    colors: [RgbColorData],
+    led-colors: [RgbColorData],
+    speed: int,
+    brightness: int,
+    direction: string,
+    scope: string,
+    swap-lr: bool,
+    swap-tb: bool,
+    is-synced-zone: bool,
+}
+
+export struct RgbDeviceData {
+    device-id: string,
+    device-name: string,
+    total-leds: int,
+    mb-rgb-sync: bool,
+    supports-mb-sync: bool,
+    supports-direction: bool,
+    has-group-zones: bool,
+    synced: bool,
+    is-wireless: bool,
+    active-preset: string,
+    supported-modes: [string],
+    supported-scopes: [string],
+    preset-names: [string],
+    zones: [RgbZoneData],
+}
+
+component ToggleButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> active: false;
+    callback clicked();
+
+    height: 28px;
+    min-width: 32px;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: active ? Theme.accent : Theme.border;
+    background: active ? Theme.accent : transparent;
+
+    TouchArea { clicked => { root.clicked(); } }
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        alignment: center;
+        Text {
+            text: root.label;
+            font-size: 11px;
+            color: active ? Theme.accent-text : Theme.text-primary;
+            vertical-alignment: center;
+        }
+    }
+}
+
+component LedStrip inherits VerticalLayout {
+    in property <[RgbColorData]> led-colors;
+    in-out property <int> selected-led: -1;
+
+    callback led-clicked(int);
+    callback color-changed(int, int, int, int);
+    callback fill-all(int, int, int);
+    callback clear-all();
+
+    spacing: 8px;
+
+    HorizontalLayout {
+        spacing: 2px;
+        alignment: start;
+        for led[idx] in root.led-colors: Rectangle {
+            width: 16px;
+            height: 16px;
+            border-radius: 2px;
+            border-width: root.selected-led == idx ? 2px : 1px;
+            border-color: root.selected-led == idx
+                ? Theme.accent
+                : Theme.border.transparentize(0.5);
+            background: Colors.rgb(led.r, led.g, led.b);
+
+            TouchArea {
+                clicked => {
+                    root.selected-led = idx;
+                    root.led-clicked(idx);
+                }
+            }
+        }
+    }
+
+    if root.selected-led >= 0 && root.selected-led < root.led-colors.length: HorizontalLayout {
+        spacing: 8px;
+        Text {
+            text: "LED \{root.selected-led}";
+            font-size: 11px;
+            color: Theme.text-secondary;
+            vertical-alignment: center;
+            width: 50px;
+        }
+        ColorPicker {
+            horizontal-stretch: 1;
+            red: root.led-colors[root.selected-led].r;
+            green: root.led-colors[root.selected-led].g;
+            blue: root.led-colors[root.selected-led].b;
+            changed(r, g, b, a) => {
+                root.color-changed(root.selected-led, r, g, b);
+            }
+        }
+    }
+
+    HorizontalLayout {
+        spacing: 8px;
+        Button {
+            text: "Fill All";
+            enabled: root.selected-led >= 0;
+            clicked => {
+                if root.selected-led >= 0 && root.selected-led < root.led-colors.length {
+                    root.fill-all(
+                        root.led-colors[root.selected-led].r,
+                        root.led-colors[root.selected-led].g,
+                        root.led-colors[root.selected-led].b
+                    );
+                }
+            }
+        }
+        Button {
+            text: "Clear";
+            clicked => { root.clear-all(); }
+        }
+    }
+}
+
+component RgbZoneEditor inherits VerticalLayout {
+    in property <RgbZoneData> zone;
+    in property <[string]> mode-options;
+    in property <bool> supports-direction: false;
+    in property <bool> is-wireless: false;
+    in property <[string]> scope-options: [];
+
+    callback set-mode(string);
+    callback set-speed(int);
+    callback set-brightness(int);
+    callback set-direction(string);
+    callback set-scope(string);
+    callback set-color(int, int, int, int);
+    callback add-color();
+    callback remove-color(int);
+    callback toggle-swap-lr();
+    callback toggle-swap-tb();
+    callback set-led-color(int, int, int, int);
+    callback fill-zone(int, int, int);
+    callback clear-zone();
+
+    spacing: 8px;
+
+    // Mode selector
+    HorizontalLayout {
+        spacing: 8px;
+        Text { text: "Mode:"; font-size: 12px; color: Theme.text-secondary; vertical-alignment: center; width: 60px; }
+        ComboBox {
+            horizontal-stretch: 1;
+            model: root.mode-options;
+            current-value: root.zone.mode;
+            selected(val) => { root.set-mode(val); }
+        }
+    }
+
+    // Per-LED editor (wireless Direct mode only)
+    if root.is-wireless && root.zone.mode == "Direct": LedStrip {
+        led-colors: root.zone.led-colors;
+        color-changed(idx, r, g, b) => { root.set-led-color(idx, r, g, b); }
+        fill-all(r, g, b) => { root.fill-zone(r, g, b); }
+        clear-all => { root.clear-zone(); }
+    }
+
+    // Colors (up to 4)
+    if root.zone.mode != "Off" && root.zone.mode != "Rainbow" && !(root.is-wireless && root.zone.mode == "Direct"): VerticalLayout {
+        spacing: 4px;
+
+        HorizontalLayout {
+            spacing: 8px;
+            Text { text: "Colors"; font-size: 12px; color: Theme.text-secondary; vertical-alignment: center; }
+            Rectangle { horizontal-stretch: 1; }
+            if root.zone.colors.length < 4: Button {
+                text: "+";
+                clicked => { root.add-color(); }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
+
+            for color-data[cidx] in root.zone.colors: VerticalLayout {
+                max-width: 180px;
+                spacing: 2px;
+                ColorPicker {
+                    red: color-data.r;
+                    green: color-data.g;
+                    blue: color-data.b;
+                    changed(r, g, b, a) => { root.set-color(cidx, r, g, b); }
+                }
+                if root.zone.colors.length > 1: HorizontalLayout {
+                    alignment: center;
+                    Button {
+                        text: "Remove";
+                        clicked => { root.remove-color(cidx); }
+                    }
+                }
+            }
+        }
+    }
+
+    // Speed slider
+    if root.zone.mode != "Off" && root.zone.mode != "Static" && root.zone.mode != "Direct": HorizontalLayout {
+        spacing: 8px;
+        Text { text: "Speed:"; font-size: 12px; color: Theme.text-secondary; vertical-alignment: center; width: 60px; }
+        Slider {
+            horizontal-stretch: 1;
+            minimum: 0;
+            maximum: 4;
+            value: root.zone.speed;
+            changed(val) => { root.set-speed(round(val)); }
+        }
+        Text { text: "\{root.zone.speed}"; font-size: 12px; color: Theme.text-secondary; width: 20px; vertical-alignment: center; }
+    }
+
+    // Brightness slider
+    if root.zone.mode != "Off" && root.zone.mode != "Direct": HorizontalLayout {
+        spacing: 8px;
+        Text { text: "Bright:"; font-size: 12px; color: Theme.text-secondary; vertical-alignment: center; width: 60px; }
+        Slider {
+            horizontal-stretch: 1;
+            minimum: 0;
+            maximum: 4;
+            value: root.zone.brightness;
+            changed(val) => { root.set-brightness(round(val)); }
+        }
+        Text { text: "\{root.zone.brightness}"; font-size: 12px; color: Theme.text-secondary; width: 20px; vertical-alignment: center; }
+    }
+
+    // Direction buttons
+    if root.zone.mode != "Off" && root.zone.mode != "Static" && root.supports-direction: HorizontalLayout {
+        spacing: 4px;
+        Text { text: "Dir:"; font-size: 12px; color: Theme.text-secondary; vertical-alignment: center; width: 60px; }
+        ToggleButton { label: "CW"; active: root.zone.direction == "Clockwise"; clicked => { root.set-direction("Clockwise"); } }
+        ToggleButton { label: "CCW"; active: root.zone.direction == "CounterClockwise"; clicked => { root.set-direction("CounterClockwise"); } }
+        ToggleButton { label: "Up"; active: root.zone.direction == "Up"; clicked => { root.set-direction("Up"); } }
+        ToggleButton { label: "Down"; active: root.zone.direction == "Down"; clicked => { root.set-direction("Down"); } }
+        ToggleButton { label: "Spread"; active: root.zone.direction == "Spread"; clicked => { root.set-direction("Spread"); } }
+        ToggleButton { label: "Gather"; active: root.zone.direction == "Gather"; clicked => { root.set-direction("Gather"); } }
+    }
+
+    // Scope buttons (if device has multiple scopes)
+    if root.scope-options.length > 1: HorizontalLayout {
+        spacing: 4px;
+        Text { text: "Scope:"; font-size: 12px; color: Theme.text-secondary; vertical-alignment: center; width: 60px; }
+        for scope-opt in root.scope-options: ToggleButton {
+            label: scope-opt;
+            active: root.zone.scope == scope-opt;
+            clicked => { root.set-scope(scope-opt); }
+        }
+    }
+
+    // Fan direction swaps
+    if root.supports-direction: HorizontalLayout {
+        spacing: 8px;
+        CheckBox {
+            text: "Swap L/R";
+            checked: root.zone.swap-lr;
+            toggled => { root.toggle-swap-lr(); }
+        }
+        CheckBox {
+            text: "Swap T/B";
+            checked: root.zone.swap-tb;
+            toggled => { root.toggle-swap-tb(); }
+        }
+    }
+}
+
+component RgbDeviceCard inherits Card {
+    in property <RgbDeviceData> device;
+    in-out property <string> preset-selected: device.active-preset;
+    in-out property <int> expanded-zone: -1;
+    vertical-stretch: 0;
+
+    callback set-mode(string, int, string);
+    callback set-speed(string, int, int);
+    callback set-brightness(string, int, int);
+    callback set-direction(string, int, string);
+    callback set-scope(string, int, string);
+    callback set-color(string, int, int, int, int, int);
+    callback toggle-mb-sync(string, bool);
+    callback apply-to-all(string);
+    callback toggle-swap-lr(string, int);
+    callback toggle-swap-tb(string, int);
+    callback add-color(string, int);
+    callback remove-color(string, int, int);
+    callback set-led-color(string, int, int, int, int, int);
+    callback fill-zone(string, int, int, int, int);
+    callback clear-zone(string, int);
+    callback save-preset(string, string);
+    callback apply-preset(string, string);
+    callback delete-preset(string, string);
+
+    VerticalLayout {
+        spacing: 8px;
+
+        // Device header
+        HorizontalLayout {
+            spacing: 8px;
+            Text {
+                text: root.device.device-name;
+                font-size: 15px;
+                font-weight: 600;
+                color: Theme.text-primary;
+                vertical-alignment: center;
+            }
+            Text {
+                text: "\{root.device.zones.length} zones, \{root.device.total-leds} LEDs";
+                font-size: 12px;
+                color: Theme.text-secondary;
+                vertical-alignment: center;
+            }
+            Rectangle { horizontal-stretch: 1; }
+
+            if root.device.supports-mb-sync: CheckBox {
+                text: "MB Sync";
+                checked: root.device.mb-rgb-sync;
+                toggled => { root.toggle-mb-sync(root.device.device-id, self.checked); }
+            }
+        }
+
+        // Zone list
+        if !root.device.mb-rgb-sync: VerticalLayout {
+            spacing: 4px;
+
+            for zone-data[zidx] in root.device.zones: VerticalLayout {
+                spacing: 0px;
+                // Synced secondary zones are dimmed
+                opacity: zone-data.is-synced-zone ? 0.5 : 1.0;
+
+                // Zone header (click to expand)
+                Rectangle {
+                    height: 32px;
+                    border-radius: 4px;
+                    background: root.expanded-zone == zidx && !zone-data.is-synced-zone ? Theme.accent.transparentize(0.9) : transparent;
+
+                    TouchArea {
+                        clicked => {
+                            // Synced secondary zones are not expandable
+                            if zone-data.is-synced-zone { return; }
+                            root.expanded-zone = root.expanded-zone == zidx ? -1 : zidx;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        spacing: 8px;
+
+                        if !zone-data.is-synced-zone: Text {
+                            text: root.expanded-zone == zidx ? "\u{25BC}" : "\u{25B6}";
+                            font-size: 10px;
+                            color: Theme.text-secondary;
+                            vertical-alignment: center;
+                            width: 14px;
+                        }
+                        Text {
+                            text: zone-data.zone-name;
+                            font-size: 13px;
+                            color: Theme.text-primary;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: "\{zone-data.led-count} LEDs";
+                            font-size: 11px;
+                            color: Theme.text-secondary;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: zone-data.is-synced-zone ? "SYNCED" : zone-data.mode;
+                            font-size: 11px;
+                            font-weight: zone-data.is-synced-zone ? 600 : 400;
+                            color: zone-data.is-synced-zone ? #f59e0b : Theme.accent;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                // Zone editor (expanded) — synced zones can't expand
+                if root.expanded-zone == zidx && !zone-data.is-synced-zone: Rectangle {
+                    border-radius: 4px;
+                    background: Theme.card-background;
+
+                    VerticalLayout {
+                        padding: 12px;
+                        RgbZoneEditor {
+                            zone: zone-data;
+                            mode-options: root.device.supported-modes;
+                            supports-direction: root.device.supports-direction;
+                            is-wireless: root.device.is-wireless;
+                            scope-options: root.device.supported-scopes;
+                            set-mode(mode) => { root.set-mode(root.device.device-id, zidx, mode); }
+                            set-speed(speed) => { root.set-speed(root.device.device-id, zidx, speed); }
+                            set-brightness(brightness) => { root.set-brightness(root.device.device-id, zidx, brightness); }
+                            set-direction(dir) => { root.set-direction(root.device.device-id, zidx, dir); }
+                            set-scope(scope) => { root.set-scope(root.device.device-id, zidx, scope); }
+                            set-color(cidx, r, g, b) => { root.set-color(root.device.device-id, zidx, cidx, r, g, b); }
+                            add-color => { root.add-color(root.device.device-id, zidx); }
+                            remove-color(cidx) => { root.remove-color(root.device.device-id, zidx, cidx); }
+                            toggle-swap-lr => { root.toggle-swap-lr(root.device.device-id, zidx); }
+                            toggle-swap-tb => { root.toggle-swap-tb(root.device.device-id, zidx); }
+                            set-led-color(idx, r, g, b) => { root.set-led-color(root.device.device-id, zidx, idx, r, g, b); }
+                            fill-zone(r, g, b) => { root.fill-zone(root.device.device-id, zidx, r, g, b); }
+                            clear-zone => { root.clear-zone(root.device.device-id, zidx); }
+                        }
+                    }
+                }
+            }
+
+            // Apply to all button — hidden when synced (zone 0 already controls all)
+            if root.device.zones.length > 1 && root.device.has-group-zones && !root.device.synced: HorizontalLayout {
+                alignment: end;
+                padding-top: 4px;
+                Button {
+                    text: "Apply to All Zones";
+                    clicked => { root.apply-to-all(root.device.device-id); }
+                }
+            }
+
+            // Preset bar
+            VerticalLayout {
+                spacing: 6px;
+                padding-top: 8px;
+                Rectangle { height: 1px; background: Theme.border; }
+                Text {
+                    text: "Presets";
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: Theme.text-secondary;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    ComboBox {
+                        horizontal-stretch: 1;
+                        model: root.device.preset-names;
+                        current-value: root.preset-selected;
+                        selected(val) => { root.preset-selected = val; }
+                    }
+                    Button {
+                        text: "Apply";
+                        enabled: root.preset-selected != "";
+                        clicked => {
+                            root.apply-preset(root.device.device-id, root.preset-selected);
+                        }
+                    }
+                    Button {
+                        text: "Delete";
+                        enabled: root.preset-selected != "";
+                        clicked => {
+                            root.delete-preset(root.device.device-id, root.preset-selected);
+                            root.preset-selected = "";
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    preset-name-input := LineEdit {
+                        horizontal-stretch: 1;
+                        placeholder-text: "Preset name...";
+                    }
+                    Button {
+                        text: "Save As";
+                        enabled: preset-name-input.text != "";
+                        clicked => {
+                            root.save-preset(root.device.device-id, preset-name-input.text);
+                            preset-name-input.text = "";
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component RgbPage inherits VerticalLayout {
+    in property <[RgbDeviceData]> rgb-devices: [];
+    in property <bool> openrgb-enabled: false;
+    in property <bool> openrgb-running: false;
+    in property <int> openrgb-port: 6743;
+    in property <string> openrgb-error: "";
+
+    callback set-mode(string, int, string);
+    callback set-speed(string, int, int);
+    callback set-brightness(string, int, int);
+    callback set-direction(string, int, string);
+    callback set-scope(string, int, string);
+    callback set-color(string, int, int, int, int, int);
+    callback toggle-mb-sync(string, bool);
+    callback apply-to-all(string);
+    callback toggle-swap-lr(string, int);
+    callback toggle-swap-tb(string, int);
+    callback add-color(string, int);
+    callback remove-color(string, int, int);
+    callback toggle-openrgb(bool);
+    callback save-config();
+    callback set-led-color(string, int, int, int, int, int);
+    callback fill-zone(string, int, int, int, int);
+    callback clear-zone(string, int);
+    callback save-preset(string, string);
+    callback apply-preset(string, string);
+    callback delete-preset(string, string);
+
+    PageHeader {
+        title: "RGB";
+
+        HorizontalLayout {
+            alignment: end;
+            vertical-stretch: 0;
+            Button {
+                text: "Save";
+                clicked => { root.save-config(); }
+            }
+        }
+    }
+
+    ScrollView {
+        VerticalLayout {
+            padding: 24px;
+            spacing: 16px;
+            alignment: start;
+
+            // OpenRGB status card
+            Card {
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: "OpenRGB SDK Server";
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    CheckBox {
+                        text: "Enable";
+                        checked: root.openrgb-enabled;
+                        toggled => { root.toggle-openrgb(self.checked); }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        StatusDot { active: root.openrgb-running; }
+                    }
+                    Text {
+                        text: root.openrgb-running ? "Listening on port \{root.openrgb-port}" :
+                              root.openrgb-error != "" ? "Error" : "Disabled";
+                        font-size: 12px;
+                        color: root.openrgb-running ? Theme.status-ok : Theme.text-secondary;
+                        vertical-alignment: center;
+                    }
+                }
+                if root.openrgb-enabled: Text {
+                    text: "RGB effects configured below will be disabled while the OpenRGB server is enabled.";
+                    font-size: 11px;
+                    color: Theme.text-secondary;
+                    wrap: word-wrap;
+                }
+            }
+
+            // Device cards
+            for rgb-dev[didx] in root.rgb-devices: RgbDeviceCard {
+                device: rgb-dev;
+                set-mode(dev-id, zone, mode) => { root.set-mode(dev-id, zone, mode); }
+                set-speed(dev-id, zone, speed) => { root.set-speed(dev-id, zone, speed); }
+                set-brightness(dev-id, zone, bright) => { root.set-brightness(dev-id, zone, bright); }
+                set-direction(dev-id, zone, dir) => { root.set-direction(dev-id, zone, dir); }
+                set-scope(dev-id, zone, scope) => { root.set-scope(dev-id, zone, scope); }
+                set-color(dev-id, zone, cidx, r, g, b) => { root.set-color(dev-id, zone, cidx, r, g, b); }
+                toggle-mb-sync(dev-id, enabled) => { root.toggle-mb-sync(dev-id, enabled); }
+                apply-to-all(dev-id) => { root.apply-to-all(dev-id); }
+                toggle-swap-lr(dev-id, zone) => { root.toggle-swap-lr(dev-id, zone); }
+                toggle-swap-tb(dev-id, zone) => { root.toggle-swap-tb(dev-id, zone); }
+                add-color(dev-id, zone) => { root.add-color(dev-id, zone); }
+                remove-color(dev-id, zone, cidx) => { root.remove-color(dev-id, zone, cidx); }
+                set-led-color(dev-id, zone, idx, r, g, b) => { root.set-led-color(dev-id, zone, idx, r, g, b); }
+                fill-zone(dev-id, zone, r, g, b) => { root.fill-zone(dev-id, zone, r, g, b); }
+                clear-zone(dev-id, zone) => { root.clear-zone(dev-id, zone); }
+                save-preset(dev-id, name) => { root.save-preset(dev-id, name); }
+                apply-preset(dev-id, name) => { root.apply-preset(dev-id, name); }
+                delete-preset(dev-id, name) => { root.delete-preset(dev-id, name); }
+            }
+
+            if root.rgb-devices.length == 0: Text {
+                text: "No RGB-capable devices found.";
+                font-size: 14px;
+                color: Theme.text-secondary;
+                horizontal-alignment: center;
+            }
+        }
+    }
+}

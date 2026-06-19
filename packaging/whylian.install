@@ -1,0 +1,8 @@
+post_install() {
+  echo "Enable the user daemon: systemctl --user enable --now lianli-daemon"
+  echo "For headless fan control (recommended): sudo loginctl enable-linger \$USER"
+}
+
+post_upgrade() {
+  post_install
+}

@@ -1,0 +1,217 @@
+import { Theme } from "../../theme.slint";
+import { SpinBox, LineEdit, ComboBox, CheckBox } from "std-widgets.slint";
+
+export component ReorderButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    width: 18px;
+    height: 20px;
+    border-radius: 3px;
+    background: touch.has-hover && root.enabled
+        ? Theme.accent.transparentize(0.7)
+        : transparent;
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+
+    Text {
+        text: root.label;
+        font-size: 10px;
+        color: root.enabled ? Theme.text-primary : Theme.text-secondary.transparentize(0.5);
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+export component LabeledSpinBox inherits Rectangle {
+    in property <string> label;
+    in property <int> value;
+    in property <int> minimum: -100000;
+    in property <int> maximum: 100000;
+    callback edited(int);
+
+    height: 28px;
+
+    changed value => { spin.value = root.value; }
+
+    HorizontalLayout {
+        spacing: 6px;
+        Text {
+            text: root.label;
+            font-size: 11px;
+            color: Theme.text-secondary;
+            vertical-alignment: center;
+            width: 124px;
+        }
+        spin := SpinBox {
+            horizontal-stretch: 1;
+            minimum: root.minimum;
+            maximum: root.maximum;
+            value: root.value;
+            edited(v) => { root.edited(v); }
+        }
+    }
+}
+
+export component LabeledLineEdit inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    callback edited(string);
+
+    height: 28px;
+
+    changed value => { line.text = root.value; }
+
+    HorizontalLayout {
+        spacing: 6px;
+        Text {
+            text: root.label;
+            font-size: 11px;
+            color: Theme.text-secondary;
+            vertical-alignment: center;
+            width: 124px;
+        }
+        line := LineEdit {
+            horizontal-stretch: 1;
+            text: root.value;
+            edited(v) => { root.edited(v); }
+        }
+    }
+}
+
+export component BareSpinBox inherits Rectangle {
+    in property <int> value;
+    in property <int> minimum: 0;
+    in property <int> maximum: 255;
+    callback edited(int);
+
+    horizontal-stretch: 1;
+    height: 28px;
+
+    changed value => { spin.value = root.value; }
+
+    spin := SpinBox {
+        width: parent.width;
+        height: parent.height;
+        minimum: root.minimum;
+        maximum: root.maximum;
+        value: root.value;
+        edited(v) => { root.edited(v); }
+    }
+}
+
+export component BareLineEdit inherits Rectangle {
+    in property <string> value;
+    callback edited(string);
+
+    horizontal-stretch: 1;
+    height: 28px;
+
+    changed value => { line.text = root.value; }
+
+    line := LineEdit {
+        width: parent.width;
+        height: parent.height;
+        text: root.value;
+        edited(v) => { root.edited(v); }
+    }
+}
+
+export component LabeledComboValue inherits Rectangle {
+    in property <string> label;
+    in property <[string]> model;
+    in property <string> value;
+    callback selected(string);
+
+    height: 28px;
+
+    changed value => { combo.current-value = root.value; }
+
+    HorizontalLayout {
+        spacing: 6px;
+        Text {
+            text: root.label;
+            font-size: 11px;
+            color: Theme.text-secondary;
+            vertical-alignment: center;
+            width: 124px;
+        }
+        combo := ComboBox {
+            horizontal-stretch: 1;
+            model: root.model;
+            current-value: root.value;
+            selected(v) => { root.selected(v); }
+        }
+    }
+}
+
+export component LabeledComboIndex inherits Rectangle {
+    in property <string> label;
+    in property <[string]> model;
+    in property <int> index;
+    callback selected(string);
+
+    height: 28px;
+
+    changed index => { combo.current-index = root.index; }
+
+    HorizontalLayout {
+        spacing: 6px;
+        Text {
+            text: root.label;
+            font-size: 11px;
+            color: Theme.text-secondary;
+            vertical-alignment: center;
+            width: 124px;
+        }
+        combo := ComboBox {
+            horizontal-stretch: 1;
+            model: root.model;
+            current-index: root.index;
+            selected(v) => { root.selected(v); }
+        }
+    }
+}
+
+export component LabeledCheckBox inherits Rectangle {
+    in property <string> text;
+    in property <bool> checked;
+    callback toggled(bool);
+
+    height: 28px;
+
+    changed checked => { box.checked = root.checked; }
+
+    HorizontalLayout {
+        alignment: start;
+        box := CheckBox {
+            text: root.text;
+            checked: root.checked;
+            toggled => { root.toggled(self.checked); }
+        }
+    }
+}
+
+export component RgbaRow inherits VerticalLayout {
+    in property <string> title;
+    in property <int> r;
+    in property <int> g;
+    in property <int> b;
+    in property <int> a;
+    callback edited(string, int);
+
+    spacing: 4px;
+
+    Text { text: root.title; font-size: 10px; color: Theme.text-secondary; }
+    HorizontalLayout {
+        spacing: 4px;
+        BareSpinBox { value: root.r; edited(v) => { root.edited("r", v); } }
+        BareSpinBox { value: root.g; edited(v) => { root.edited("g", v); } }
+        BareSpinBox { value: root.b; edited(v) => { root.edited("b", v); } }
+        BareSpinBox { value: root.a; edited(v) => { root.edited("a", v); } }
+    }
+}

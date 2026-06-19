@@ -1,0 +1,238 @@
+import { Theme } from "../theme.slint";
+import { Card, StatusDot } from "../widgets.slint";
+import { PageHeader } from "../page_header.slint";
+import { ScrollView, SpinBox, CheckBox, Button, ComboBox } from "std-widgets.slint";
+
+export component SettingsPage inherits VerticalLayout {
+    in property <bool> daemon-connected: false;
+    in property <string> socket-path: "";
+    in property <bool> streaming-active: false;
+    in property <int> lcd-count: 0;
+    in property <int> fan-curve-count: 0;
+    in property <int> default-fps: 30;
+    in property <bool> openrgb-enabled: false;
+    in property <bool> openrgb-running: false;
+    in property <int> openrgb-port: 6743;
+    in property <string> openrgb-error: "";
+    in property <string> hid-driver: "HIDAPI";
+    in property <string> app-version: "";
+
+    callback toggle-openrgb(bool);
+    callback set-default-fps(int);
+    callback set-openrgb-port(int);
+    callback set-hid-driver(string);
+    callback save-config();
+
+    PageHeader {
+        title: "Settings";
+
+        HorizontalLayout {
+            alignment: end;
+            vertical-stretch: 0;
+            Button {
+                text: "Save";
+                clicked => { root.save-config(); }
+            }
+        }
+    }
+
+    ScrollView {
+        VerticalLayout {
+            padding: 24px;
+            spacing: 16px;
+            alignment: start;
+
+            // Daemon status card
+            Card {
+                VerticalLayout {
+                    spacing: 8px;
+
+                    Text {
+                        text: "Daemon Status";
+                        font-size: 16px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        VerticalLayout {
+                            alignment: center;
+                            StatusDot { active: root.daemon-connected; }
+                        }
+                        Text {
+                            text: root.daemon-connected ? "Connected" : "Not connected";
+                            font-size: 14px;
+                            color: Theme.text-primary;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    Text {
+                        text: "Socket: \{root.socket-path}";
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                    }
+
+                    if root.streaming-active: HorizontalLayout {
+                        spacing: 6px;
+                        VerticalLayout {
+                            alignment: center;
+                            StatusDot { active: true; }
+                        }
+                        Text {
+                            text: "LCD streaming active";
+                            font-size: 12px;
+                            color: Theme.status-ok;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+
+            // Configuration card
+            Card {
+                VerticalLayout {
+                    spacing: 8px;
+
+                    Text {
+                        text: "Configuration";
+                        font-size: 16px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            text: "Default FPS:";
+                            font-size: 14px;
+                            color: Theme.text-primary;
+                            vertical-alignment: center;
+                        }
+                        SpinBox {
+                            value: root.default-fps;
+                            minimum: 1;
+                            maximum: 60;
+                            edited(val) => { root.set-default-fps(val); }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            text: "HID Driver:";
+                            font-size: 14px;
+                            color: Theme.text-primary;
+                            vertical-alignment: center;
+                        }
+                        ComboBox {
+                            model: ["HIDAPI", "Rusb"];
+                            current-value: root.hid-driver;
+                            selected(val) => { root.set-hid-driver(val); }
+                        }
+                    }
+
+                    Text {
+                        text: "Will restart the daemon to take effect";
+                        font-size: 11px;
+                        color: Theme.text-secondary;
+                    }
+
+                    Text {
+                        text: "\{root.lcd-count} LCD entries, \{root.fan-curve-count} fan curves";
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                    }
+                }
+            }
+
+            // OpenRGB card
+            Card {
+                VerticalLayout {
+                    spacing: 8px;
+
+                    Text {
+                        text: "OpenRGB SDK Server";
+                        font-size: 16px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    CheckBox {
+                        text: "Enable OpenRGB Server";
+                        checked: root.openrgb-enabled;
+                        toggled => { root.toggle-openrgb(self.checked); }
+                    }
+
+                    if root.openrgb-enabled: HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            text: "Port:";
+                            font-size: 14px;
+                            color: Theme.text-primary;
+                            vertical-alignment: center;
+                        }
+                        SpinBox {
+                            value: root.openrgb-port;
+                            minimum: 1024;
+                            maximum: 65535;
+                            edited(val) => { root.set-openrgb-port(val); }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 6px;
+                        VerticalLayout {
+                            alignment: center;
+                            StatusDot { active: root.openrgb-running; }
+                        }
+                        Text {
+                            text: root.openrgb-running ? "Listening" :
+                                  root.openrgb-error != "" ? "Error: \{root.openrgb-error}" :
+                                  root.openrgb-enabled ? "Starting..." : "Disabled";
+                            font-size: 12px;
+                            color: root.openrgb-running ? Theme.status-ok :
+                                   root.openrgb-error != "" ? Theme.status-error :
+                                   Theme.text-secondary;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    if root.openrgb-enabled: Text {
+                        text: "RGB effects configured in the app will be disabled while the OpenRGB server is enabled.";
+                        font-size: 11px;
+                        color: Theme.text-secondary;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            // About card
+            Card {
+                VerticalLayout {
+                    spacing: 4px;
+
+                    Text {
+                        text: "About";
+                        font-size: 16px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    Text {
+                        text: "Lian Li Linux v\{root.app-version}";
+                        font-size: 14px;
+                        color: Theme.text-primary;
+                    }
+
+                    Text {
+                        text: "Fan, LED, RGB, and LCD control for Lian Li hardware on Linux.";
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                    }
+                }
+            }
+        }
+    }
+}

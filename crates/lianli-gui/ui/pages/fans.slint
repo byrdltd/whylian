@@ -1,0 +1,422 @@
+import { Theme } from "../theme.slint";
+import { Card } from "../widgets.slint";
+import { PageHeader } from "../page_header.slint";
+import { FanCurveEditor, CurvePoint, CurveSegment } from "../components/fan_curve_editor.slint";
+import { Button, ScrollView, ComboBox, Slider, LineEdit, SpinBox } from "std-widgets.slint";
+
+export { CurvePoint, CurveSegment }
+
+export struct FanCurveData {
+    name: string,
+    temp-source-index: int,
+    temp-command: string,
+    points: [CurvePoint],
+    curve-segments: [CurveSegment],
+    clamp-segments: [CurveSegment],
+}
+
+export struct FanSpeedSlot {
+    dropdown-value: string,
+    pwm-percent: int,
+    display-mode: string,  // "off", "constant", "curve", "mb_sync"
+    pwm-header: string,
+    pwm-header-label: string,
+}
+
+export struct FanGroupData {
+    device-id: string,
+    device-name: string,
+    fan-count: int,
+    per-fan-control: bool,
+    mb-sync-support: bool,
+    is-wireless: bool,
+    has-pump-control: bool,
+    pump-slot: FanSpeedSlot,
+    slots: [FanSpeedSlot],
+}
+
+component FanCurveCard inherits Card {
+    in property <int> index;
+    in property <FanCurveData> curve;
+    in property <[string]> sensor-options: [];
+
+    callback rename(int, string);
+    callback set-temp-source(int, string);
+    callback set-temp-command(int, string);
+    callback remove-curve(int);
+    callback point-moved(int, int, float, float);
+    callback point-added(int, float, float);
+    callback point-removed(int, int);
+
+    VerticalLayout {
+        spacing: 8px;
+
+        // Header
+        HorizontalLayout {
+            spacing: 8px;
+            LineEdit {
+                horizontal-stretch: 1;
+                text: root.curve.name;
+                edited(val) => { root.rename(root.index, val); }
+            }
+            Button {
+                text: "Remove";
+                clicked => { root.remove-curve(root.index); }
+            }
+        }
+
+        // Temp source selector
+        HorizontalLayout {
+            spacing: 8px;
+            Text { text: "Sensor:"; font-size: 12px; color: Theme.text-secondary; vertical-alignment: center; }
+            ComboBox {
+                horizontal-stretch: 1;
+                model: root.sensor-options;
+                current-index: root.curve.temp-source-index;
+                selected(val) => { root.set-temp-source(root.index, val); }
+            }
+        }
+
+        // Show command editor only for custom command
+        if root.curve.temp-source-index == (root.sensor-options.length - 1): HorizontalLayout {
+            spacing: 8px;
+            Text { text: "Command:"; font-size: 12px; color: Theme.text-secondary; vertical-alignment: center; }
+            LineEdit {
+                horizontal-stretch: 1;
+                text: root.curve.temp-command;
+                placeholder-text: "sensors | awk ...";
+                edited(val) => { root.set-temp-command(root.index, val); }
+            }
+        }
+
+        // Interactive curve editor
+        FanCurveEditor {
+            height: 200px;
+            curve-name: root.curve.name;
+            points: root.curve.points;
+            curve-segments: root.curve.curve-segments;
+            clamp-segments: root.curve.clamp-segments;
+            point-moved(pidx, temp, speed) => { root.point-moved(root.index, pidx, temp, speed); }
+            point-added(temp, speed) => { root.point-added(root.index, temp, speed); }
+            point-removed(pidx) => { root.point-removed(root.index, pidx); }
+        }
+
+        // Hint
+        Text {
+            text: "Click graph to add points. Drag to move. Double-click to remove.";
+            font-size: 11px;
+            color: Theme.text-secondary;
+        }
+    }
+}
+
+component FanGroupCard inherits Card {
+    in property <FanGroupData> group;
+    in property <[string]> speed-options: [];
+    in property <[string]> curve-names: [];
+    in property <[string]> pwm-header-options: [];
+
+    callback set-slot-speed(string, int, string);
+    callback set-slot-pwm(string, int, int);
+    callback set-pwm-header(string, int, string);
+
+    VerticalLayout {
+        spacing: 8px;
+
+        HorizontalLayout {
+            spacing: 8px;
+            Text {
+                text: root.group.device-name != "" ? root.group.device-name : root.group.device-id;
+                font-size: 14px;
+                font-weight: 600;
+                color: Theme.text-primary;
+                vertical-alignment: center;
+            }
+            Text {
+                text: root.group.has-pump-control
+                    ? (root.group.fan-count > 0
+                        ? "\{root.group.fan-count} fan(s) + pump"
+                        : "Pump only")
+                    : "\{root.group.fan-count} fan(s)";
+                font-size: 11px;
+                color: Theme.text-secondary;
+                vertical-alignment: center;
+            }
+        }
+
+        for slot[sidx] in root.group.slots: VerticalLayout {
+            spacing: 4px;
+
+            if root.group.per-fan-control && sidx < root.group.fan-count: Text {
+                text: "Fan \{sidx + 1}";
+                font-size: 11px;
+                color: Theme.text-secondary;
+            }
+
+            if !root.group.per-fan-control && sidx == 0: Text {
+                text: "All fans on this port";
+                font-size: 11px;
+                color: Theme.text-secondary;
+            }
+
+            // Only show controls for fan 0 if not per-fan, or up to fan-count if per-fan
+            if (root.group.per-fan-control && sidx < root.group.fan-count) || (!root.group.per-fan-control && sidx == 0): VerticalLayout {
+                spacing: 4px;
+
+                ComboBox {
+                    model: root.speed-options;
+                    current-value: slot.dropdown-value;
+                    selected(val) => { root.set-slot-speed(root.group.device-id, sidx, val); }
+                }
+
+                if slot.display-mode == "mb_sync" && root.group.is-wireless: ComboBox {
+                    model: root.pwm-header-options;
+                    current-value: slot.pwm-header-label;
+                    selected(val) => { root.set-pwm-header(root.group.device-id, sidx, val); }
+                }
+
+                if slot.display-mode == "constant": HorizontalLayout {
+                    spacing: 4px;
+                    Slider {
+                        horizontal-stretch: 1;
+                        minimum: 0;
+                        maximum: 100;
+                        value: slot.pwm-percent;
+                        changed(val) => { root.set-slot-pwm(root.group.device-id, sidx, round(val)); }
+                    }
+                    Text {
+                        text: "\{slot.pwm-percent}%";
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                        width: 36px;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+
+        // Pump speed control (AIO devices) — always maps to hardware slot 3
+        if root.group.has-pump-control: VerticalLayout {
+            spacing: 4px;
+
+            Text {
+                text: "Pump";
+                font-size: 11px;
+                color: Theme.text-secondary;
+            }
+
+            ComboBox {
+                model: root.speed-options;
+                current-value: root.group.pump-slot.dropdown-value;
+                selected(val) => { root.set-slot-speed(root.group.device-id, 3, val); }
+            }
+
+            if root.group.pump-slot.display-mode == "constant": HorizontalLayout {
+                spacing: 4px;
+                Slider {
+                    horizontal-stretch: 1;
+                    minimum: 0;
+                    maximum: 100;
+                    value: root.group.pump-slot.pwm-percent;
+                    changed(val) => { root.set-slot-pwm(root.group.device-id, 3, round(val)); }
+                }
+                Text {
+                    text: "\{root.group.pump-slot.pwm-percent}%";
+                    font-size: 12px;
+                    color: Theme.text-secondary;
+                    width: 36px;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}
+
+export component FansPage inherits VerticalLayout {
+    in property <[FanCurveData]> fan-curves: [];
+    in property <[FanGroupData]> fan-groups: [];
+    in property <[string]> curve-names: [];
+    in property <[string]> speed-options: [];
+    in property <[string]> sensor-options: [];
+    in property <int> update-interval: 1000;
+    in property <float> hysteresis-temp: 1.0;
+    in property <int> hysteresis-pwm: 5;
+    in property <bool> has-config: false;
+
+    callback add-curve();
+    callback remove-curve(int);
+    callback rename-curve(int, string);
+    callback set-temp-source(int, string);
+    callback set-temp-command(int, string);
+    callback point-moved(int, int, float, float);
+    callback point-added(int, float, float);
+    callback point-removed(int, int);
+    in property <[string]> pwm-header-options: [];
+
+    callback set-slot-speed(string, int, string);
+    callback set-slot-pwm(string, int, int);
+    callback set-pwm-header(string, int, string);
+    callback set-update-interval(int);
+    callback set-hysteresis-temp(float);
+    callback set-hysteresis-pwm(int);
+    callback save-config();
+
+    PageHeader {
+        title: "Fans";
+
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+            vertical-stretch: 0;
+
+            Button {
+                text: "+ Add Curve";
+                clicked => { root.add-curve(); }
+            }
+            Button {
+                text: "Save";
+                clicked => { root.save-config(); }
+            }
+        }
+    }
+
+    ScrollView {
+        VerticalLayout {
+            padding: 24px;
+            spacing: 16px;
+            alignment: start;
+
+            if !root.has-config: Text {
+                text: "No config loaded. Is the daemon running?";
+                font-size: 14px;
+                color: Theme.text-secondary;
+            }
+
+            // Fan curves section
+            if root.has-config: VerticalLayout {
+                spacing: 12px;
+
+                Text {
+                    text: "Fan Curves";
+                    font-size: 16px;
+                    font-weight: 600;
+                    color: Theme.text-primary;
+                }
+
+                for curve-data[cidx] in root.fan-curves: FanCurveCard {
+                    index: cidx;
+                    curve: curve-data;
+                    sensor-options: root.sensor-options;
+                    rename(idx, name) => { root.rename-curve(idx, name); }
+                    set-temp-source(idx, val) => { root.set-temp-source(idx, val); }
+                    set-temp-command(idx, cmd) => { root.set-temp-command(idx, cmd); }
+                    remove-curve(idx) => { root.remove-curve(idx); }
+                    point-moved(cidx2, pidx, temp, speed) => { root.point-moved(cidx2, pidx, temp, speed); }
+                    point-added(cidx2, temp, speed) => { root.point-added(cidx2, temp, speed); }
+                    point-removed(cidx2, pidx) => { root.point-removed(cidx2, pidx); }
+                }
+
+                if root.fan-curves.length == 0: Text {
+                    text: "No fan curves defined.";
+                    font-size: 13px;
+                    color: Theme.text-secondary;
+                }
+            }
+
+            // Fan speed assignments
+            if root.has-config && root.fan-groups.length > 0: VerticalLayout {
+                spacing: 12px;
+
+                Text {
+                    text: "Fan Speed Assignments";
+                    font-size: 16px;
+                    font-weight: 600;
+                    color: Theme.text-primary;
+                }
+
+                for group-data in root.fan-groups: FanGroupCard {
+                    group: group-data;
+                    speed-options: root.speed-options;
+                    curve-names: root.curve-names;
+                    pwm-header-options: root.pwm-header-options;
+                    set-slot-speed(dev-id, slot, val) => { root.set-slot-speed(dev-id, slot, val); }
+                    set-slot-pwm(dev-id, slot, pct) => { root.set-slot-pwm(dev-id, slot, pct); }
+                    set-pwm-header(dev-id, slot, val) => { root.set-pwm-header(dev-id, slot, val); }
+                }
+            }
+
+            // Update interval + hysteresis
+            if root.has-config: Card {
+                VerticalLayout {
+                    spacing: 8px;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            text: "Update interval:";
+                            width: 160px;
+                            font-size: 13px;
+                            color: Theme.text-primary;
+                            vertical-alignment: center;
+                        }
+                        SpinBox {
+                            value: root.update-interval;
+                            minimum: 100;
+                            maximum: 10000;
+                            edited(val) => { root.set-update-interval(val); }
+                        }
+                        Text {
+                            text: "ms";
+                            font-size: 13px;
+                            color: Theme.text-secondary;
+                            vertical-alignment: center;
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            text: "Hysteresis (temp):";
+                            width: 160px;
+                            font-size: 13px;
+                            color: Theme.text-primary;
+                            vertical-alignment: center;
+                        }
+                        SpinBox {
+                            value: root.hysteresis-temp * 10;
+                            minimum: 0;
+                            maximum: 100;
+                            edited(val) => { root.set-hysteresis-temp(val / 10); }
+                        }
+                        Text {
+                            text: "x 0.1 °C";
+                            font-size: 13px;
+                            color: Theme.text-secondary;
+                            vertical-alignment: center;
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            text: "Hysteresis (PWM):";
+                            width: 160px;
+                            font-size: 13px;
+                            color: Theme.text-primary;
+                            vertical-alignment: center;
+                        }
+                        SpinBox {
+                            value: root.hysteresis-pwm;
+                            minimum: 0;
+                            maximum: 50;
+                            edited(val) => { root.set-hysteresis-pwm(val); }
+                        }
+                        Text {
+                            text: "/ 255";
+                            font-size: 13px;
+                            color: Theme.text-secondary;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

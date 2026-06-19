@@ -1,0 +1,69 @@
+[workspace.package]
+version = "0.6.1"
+edition = "2021"
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/lianli-shared",
+    "crates/lianli-transport",
+    "crates/lianli-devices",
+    "crates/lianli-media",
+    "crates/lianli-daemon",
+    "crates/lianli-gui",
+]
+
+[workspace.dependencies]
+# Shared
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+thiserror = "2.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# USB/HID
+hidapi = { version = "2.6", default-features = false, features = ["linux-static-hidraw"] }
+rusb = "0.9"
+
+# Crypto
+cbc = "0.1"
+des = "0.8"
+
+# Media
+image = { version = "0.25", features = ["jpeg", "png", "bmp", "gif"] }
+turbojpeg = "1.4"
+ab_glyph = "0.2"
+tempfile = "3.10"
+imageproc = "0.26"
+fast_image_resize = { version = "6", features = ["image"] }
+
+# Config
+notify = { version = "7.0", default-features = false, features = ["macos_kqueue"] }
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
+# Time
+time = "0.3"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+# Misc
+base64 = "0.22"
+hex = "0.4"
+parking_lot = "0.12"
+once_cell = "1.19"
+libc = "0.2"
+
+# Video encoding
+ffmpeg-next = { version = "8.1", default-features = false, features = ["codec", "software-scaling", "format"] }
+
+# Template catalog
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "json"] }
+sha2 = "0.10"
+arboard = { version = "3.4", default-features = false, features = ["wayland-data-control"] }
+
+[profile.profiling]
+inherits = "release"
+debug = 2
+strip = false

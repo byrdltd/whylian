@@ -1,0 +1,26 @@
+import { Palette } from "std-widgets.slint";
+
+export global Theme {
+    // Accent colors
+    out property <color> accent: #3b82f6;
+    out property <color> accent-hover: #2563eb;
+    out property <color> accent-text: #ffffff;
+
+    // Status colors
+    out property <color> status-ok: #22c55e;
+    out property <color> status-error: #ef4444;
+    out property <color> status-warning: #f59e0b;
+
+    // Badge colors
+    out property <color> badge-lcd: #a855f7;
+    out property <color> badge-fan: #3b82f6;
+    out property <color> badge-pump: #14b8a6;
+    out property <color> badge-rgb: #ec4899;
+
+    // Surface colors (adapt to theme)
+    out property <color> card-background: Palette.alternate-background;
+    out property <color> sidebar-background: Palette.alternate-background;
+    out property <color> border: Palette.border;
+    out property <color> text-primary: Palette.foreground;
+    out property <color> text-secondary: Palette.foreground.transparentize(0.4);
+}

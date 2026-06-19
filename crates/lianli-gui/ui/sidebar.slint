@@ -1,0 +1,148 @@
+import { Theme } from "theme.slint";
+import { StatusDot } from "widgets.slint";
+import { VerticalBox } from "std-widgets.slint";
+
+component NavItem inherits Rectangle {
+    in property <string> label;
+    in property <bool> active: false;
+    callback clicked();
+
+    height: 36px;
+    border-radius: 6px;
+    background: active ? Theme.accent.transparentize(0.8) : touch.has-hover ? Theme.border.transparentize(0.5) : transparent;
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        alignment: start;
+        spacing: 8px;
+
+        Text {
+            text: root.label;
+            font-size: 14px;
+            color: active ? Theme.accent : Theme.text-primary;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component Sidebar inherits Rectangle {
+    in-out property <int> current-page: 0;
+    in property <bool> daemon-connected: false;
+    in property <int> device-count: 0;
+    in property <bool> config-dirty: false;
+
+
+    width: 200px;
+    background: Theme.sidebar-background;
+    border-width: 0px;
+
+    VerticalLayout {
+        padding: 12px;
+        spacing: 4px;
+
+        // Title
+        Text {
+            text: "Lian Li Linux";
+            font-size: 18px;
+            font-weight: 700;
+            color: Theme.text-primary;
+            horizontal-alignment: left;
+        }
+
+        // Daemon status
+        HorizontalLayout {
+            spacing: 6px;
+            padding-top: 4px;
+            padding-bottom: 12px;
+
+            VerticalLayout {
+                alignment: center;
+                StatusDot { active: root.daemon-connected; }
+            }
+            Text {
+                text: root.daemon-connected ? "Connected" : "Offline";
+                font-size: 12px;
+                color: Theme.text-secondary;
+                vertical-alignment: center;
+            }
+        }
+
+        // Separator
+        Rectangle {
+            height: 1px;
+            background: Theme.border;
+        }
+
+        // Navigation
+        VerticalLayout {
+            padding-top: 8px;
+            spacing: 2px;
+
+            NavItem {
+                label: "Devices";
+                active: root.current-page == 0;
+                clicked => { root.current-page = 0; }
+            }
+            NavItem {
+                label: "LCD";
+                active: root.current-page == 1;
+                clicked => { root.current-page = 1; }
+            }
+            NavItem {
+                label: "Fans";
+                active: root.current-page == 2;
+                clicked => { root.current-page = 2; }
+            }
+            NavItem {
+                label: "RGB";
+                active: root.current-page == 3;
+                clicked => { root.current-page = 3; }
+            }
+            NavItem {
+                label: "AIO";
+                active: root.current-page == 4;
+                clicked => { root.current-page = 4; }
+            }
+            NavItem {
+                label: "Settings";
+                active: root.current-page == 5;
+                clicked => { root.current-page = 5; }
+            }
+        }
+
+        // Spacer
+        Rectangle { vertical-stretch: 1; }
+
+        // Footer
+        VerticalLayout {
+            spacing: 4px;
+
+            Text {
+                text: root.device-count == 1 ? "1 device" : "\{root.device-count} devices";
+                font-size: 12px;
+                color: Theme.text-secondary;
+            }
+
+            if root.config-dirty: HorizontalLayout {
+                spacing: 4px;
+                Rectangle {
+                    width: 6px;
+                    height: 6px;
+                    border-radius: 3px;
+                    background: Theme.status-warning;
+                    y: 4px;
+                }
+                Text {
+                    text: "Unsaved changes";
+                    font-size: 12px;
+                    color: Theme.status-warning;
+                }
+            }
+        }
+    }
+}

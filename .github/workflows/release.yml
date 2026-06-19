@@ -1,0 +1,132 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v1.0.4)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  RUSTFLAGS: -D warnings
+
+jobs:
+  verify:
+    name: Verify release build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential pkg-config libusb-1.0-0-dev libudev-dev \
+            clang cmake nasm libssl-dev libfontconfig1-dev \
+            libxkbcommon-dev wayland-protocols libwayland-dev \
+            libx11-dev libinput-dev libdrm-dev libjpeg-turbo8-dev \
+            libavcodec-dev libavformat-dev libavutil-dev libswscale-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.94
+          components: rustfmt
+
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo test (shared + devices)
+        run: |
+          cargo test -p lianli-shared --lib
+          cargo test -p lianli-devices --lib pairing
+
+      - name: cargo build release
+        run: cargo build --release -p lianli-daemon -p lianli-gui
+
+  release:
+    name: Publish GitHub Release
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compose release notes
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          VER="${TAG#v}"
+
+          cat > /tmp/notes-header.md <<'EOF'
+          ## Install (Arch / CachyOS)
+
+          ```bash
+          yay -S whylian
+          # or from source:
+          git clone --recursive https://github.com/byrdltd/whyLIAN.git
+          cd whyLIAN
+          git checkout TAG
+          ./install.sh
+          systemctl --user enable --now lianli-daemon
+          sudo loginctl enable-linger $USER
+          ```
+
+          Development: `./scripts/dev-setup.sh && ./scripts/install-dev.sh --enable-linger`
+
+          Read [DISCLAIMER.md](https://github.com/byrdltd/whyLIAN/blob/main/DISCLAIMER.md) before installing.
+
+          ---
+
+          EOF
+          sed -i "s/TAG/${TAG}/g" /tmp/notes-header.md
+
+          if awk -v ver="$VER" '
+            $0 ~ "^## \\[" ver "\\]" { found=1; print; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md | grep -q .; then
+            echo "## Changelog" >> /tmp/notes-body.md
+            awk -v ver="$VER" '
+              $0 ~ "^## \\[" ver "\\]" { found=1; print; next }
+              found && /^## \[/ { exit }
+              found { print }
+            ' CHANGELOG.md >> /tmp/notes-body.md
+          else
+            echo "## Changelog" >> /tmp/notes-body.md
+            echo "(No section for [$VER] in CHANGELOG.md — see full file.)" >> /tmp/notes-body.md
+          fi
+
+          cat /tmp/notes-header.md /tmp/notes-body.md > /tmp/notes.md
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          TITLE="whyLIAN ${TAG}"
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG exists — refreshing notes"
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "$TITLE" \
+              --notes-file /tmp/notes.md
+          else
+            echo "Creating release $TAG"
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$TITLE" \
+              --notes-file /tmp/notes.md
+          fi

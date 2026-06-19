@@ -1,0 +1,47 @@
+import { Theme } from "../../theme.slint";
+import { EditorWidget } from "types.slint";
+
+export component WidgetBox inherits Rectangle {
+    in property <EditorWidget> widget;
+    in property <bool> selected;
+    in property <int> index;
+    in property <length> canvas-x;
+    in property <length> canvas-y;
+    in property <length> canvas-w;
+    in property <length> canvas-h;
+    in property <float> base-w;
+    in property <float> base-h;
+
+    callback selected-clicked(int);
+    callback moved(int, float, float);
+
+    property <float> screen-px-x: root.widget.x / root.base-w;
+    property <float> screen-px-y: root.widget.y / root.base-h;
+    property <float> screen-w: root.widget.width / root.base-w;
+    property <float> screen-h: root.widget.height / root.base-h;
+
+    x: root.canvas-x + (screen-px-x * root.canvas-w) - (screen-w * root.canvas-w / 2);
+    y: root.canvas-y + (screen-px-y * root.canvas-h) - (screen-h * root.canvas-h / 2);
+    width: screen-w * root.canvas-w;
+    height: screen-h * root.canvas-h;
+
+    border-width: selected ? 2px : 1px;
+    border-color: selected ? Theme.accent : Theme.border.transparentize(0.4);
+    border-radius: 2px;
+    background: selected ? Theme.accent.transparentize(0.85) : transparent;
+
+    property <float> frac-x: (root.x + touch.mouse-x - root.canvas-x) / root.canvas-w;
+    property <float> frac-y: (root.y + touch.mouse-y - root.canvas-y) / root.canvas-h;
+
+    touch := TouchArea {
+        mouse-cursor: move;
+        moved => {
+            root.moved(
+                root.index,
+                root.frac-x * root.base-w,
+                root.frac-y * root.base-h
+            );
+        }
+        clicked => { root.selected-clicked(root.index); }
+    }
+}
